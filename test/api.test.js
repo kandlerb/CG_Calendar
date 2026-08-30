@@ -251,6 +251,62 @@ describe('sign-ups', () => {
   });
 });
 
+describe('unlimited food slots', () => {
+  it('lets any number of people claim a slot with no limit', async () => {
+    const cookie = await signIn();
+    const created = await anon('/api/events', {
+      method: 'POST',
+      body: eventPayload({
+        title: 'Big potluck',
+        date: '2026-11-07',
+        foodSlots: [{ label: 'Side dish', capacity: 0 }],
+      }),
+      cookie,
+    });
+    const eventId = created.data.event.id;
+    const slotId = created.data.event.foodSlots[0].id;
+    assert.equal(created.data.event.foodSlots[0].capacity, 0);
+
+    for (const [who, dish] of [
+      ['Anna', 'Green beans'],
+      ['Bob', 'Roasted potatoes'],
+      ['Cleo', 'Corn casserole'],
+      ['Dev', 'Rice pilaf'],
+    ]) {
+      const res = await client(`key-${who}`)(`/api/events/${eventId}/signups`, {
+        method: 'POST',
+        body: { kind: 'food', slotId, name: who, item: dish },
+      });
+      assert.equal(res.status, 201, `${who} could sign up`);
+    }
+    const event = (await anon(`/api/events/${eventId}`)).data.event;
+    assert.equal(event.food.length, 4);
+    assert.equal(event.foodSlots[0].taken, 4);
+  });
+
+  it('accepts as many food slots as an organizer adds', async () => {
+    const cookie = await signIn();
+    const foodSlots = Array.from({ length: 60 }, (_, i) => ({ label: `Dish ${i + 1}`, capacity: 1 }));
+    const created = await anon('/api/events', {
+      method: 'POST',
+      body: eventPayload({ title: 'Very big potluck', date: '2026-11-14', foodSlots }),
+      cookie,
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.data.event.foodSlots.length, 60);
+  });
+
+  it('still rejects a negative capacity', async () => {
+    const cookie = await signIn();
+    const res = await anon('/api/events', {
+      method: 'POST',
+      body: eventPayload({ date: '2026-11-21', foodSlots: [{ label: 'Salad', capacity: -1 }] }),
+      cookie,
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
 describe('calendar reading', () => {
   it('filters by date range and sorts by date', async () => {
     const cookie = await signIn();

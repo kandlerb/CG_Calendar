@@ -2,8 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { hashToken, newToken } from './auth.js';
 import { ValidationError, bool, date, int, str, time } from './validate.js';
 
-const MAX_FOOD_SLOTS = 24;
-
 class HttpError extends Error {
   constructor(status, message) {
     super(message);
@@ -17,13 +15,11 @@ const forbidden = (message) => new HttpError(403, message);
 function normalizeFoodSlots(input) {
   if (input === undefined || input === null) return [];
   if (!Array.isArray(input)) throw new ValidationError('Food slots must be a list.');
-  if (input.length > MAX_FOOD_SLOTS) {
-    throw new ValidationError(`An event can have at most ${MAX_FOOD_SLOTS} food slots.`);
-  }
   return input.map((slot) => ({
     id: str(slot.id, 'Food slot id', { max: 64 }) || randomUUID(),
     label: str(slot.label, 'Food slot label', { required: true, max: 60 }),
-    capacity: int(slot.capacity, 'Food slot capacity', { min: 1, max: 50, fallback: 1 }),
+    // 0 means as many people as want to bring something for this slot.
+    capacity: int(slot.capacity, 'Food slot capacity', { min: 0, fallback: 1 }),
   }));
 }
 
@@ -41,7 +37,7 @@ function buildEvent(body, { existing, organizerName }) {
     endTime: time(body.endTime ?? existing?.endTime, 'End time'),
     needsHost,
     hostLimit: needsHost
-      ? int(body.hostLimit ?? existing?.hostLimit, 'Number of hosts', { min: 1, max: 20, fallback: 1 })
+      ? int(body.hostLimit ?? existing?.hostLimit, 'Number of hosts', { min: 1, fallback: 1 })
       : 0,
     foodSlots: slots,
     allowOtherFood: bool(body.allowOtherFood, existing ? existing.allowOtherFood : true),
@@ -250,7 +246,7 @@ export function createApi({ store, auth, appName }) {
         const slot = event.foodSlots.find((s) => s.id === slotId);
         if (!slot) throw new ValidationError('That food slot is no longer on this event.');
         const taken = existing.filter((s) => s.kind === 'food' && s.slotId === slotId).length;
-        if (taken >= slot.capacity) {
+        if (slot.capacity > 0 && taken >= slot.capacity) {
           throw new HttpError(409, `"${slot.label}" is already covered.`);
         }
       } else if (!event.allowOtherFood) {

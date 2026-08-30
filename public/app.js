@@ -172,9 +172,14 @@ function eventBadges(event) {
         : { text: `Host: ${event.hosts.map((h) => h.name).join(', ')}`, warn: false },
     );
   }
-  const open = event.foodSlots.reduce((sum, slot) => sum + Math.max(0, slot.capacity - slot.taken), 0);
+  const open = event.foodSlots.reduce(
+    (sum, slot) => sum + (slot.capacity === 0 ? 0 : Math.max(0, slot.capacity - slot.taken)),
+    0,
+  );
   if (open > 0) badges.push({ text: `${open} food slot${open === 1 ? '' : 's'} open`, warn: true });
-  else if (event.foodSlots.length) badges.push({ text: 'Food covered', warn: false });
+  else if (event.foodSlots.some((slot) => slot.capacity === 0)) {
+    badges.push({ text: 'More food welcome', warn: true });
+  } else if (event.foodSlots.length) badges.push({ text: 'Food covered', warn: false });
   if (event.food.length) badges.push({ text: `${event.food.length} bringing food`, warn: false });
   return badges;
 }
@@ -396,19 +401,24 @@ function foodSectionHtml(event, modal) {
   const slots = event.foodSlots
     .map((slot) => {
       const people = bySlot.get(slot.id) ?? [];
-      const room = slot.capacity - people.length;
+      const unlimited = slot.capacity === 0;
+      const room = unlimited || people.length < slot.capacity;
       const openForm = form && form.slotId === slot.id;
       return `<div>
         <div class="slot">
           <div>
             <span class="slot-label">${esc(slot.label)}</span>
-            <div class="slot-people ${room > 0 ? '' : 'taken'}">${
-              room > 0 ? `${people.length} of ${slot.capacity} filled` : 'covered'
+            <div class="slot-people ${room ? '' : 'taken'}">${
+              unlimited
+                ? `${people.length} signed up — anyone can add`
+                : room
+                  ? `${people.length} of ${slot.capacity} filled`
+                  : 'covered'
             }</div>
           </div>
           <div class="slot-actions">
             ${
-              room > 0 && !openForm
+              room && !openForm
                 ? `<button type="button" class="btn" data-open-form="food" data-slot="${esc(slot.id)}" data-slot-label="${esc(
                     slot.label,
                   )}">I'll bring this</button>`
@@ -467,7 +477,9 @@ function eventModalHtml(event, modal) {
 function slotEditorRow(slot = { label: '', capacity: 1, id: '' }) {
   return `<div class="slot-editor-row" data-slot-row>
     <input name="slot-label" placeholder="e.g. Main dish" value="${esc(slot.label)}" />
-    <input name="slot-capacity" type="number" min="1" max="50" value="${esc(slot.capacity || 1)}" aria-label="How many people" />
+    <input name="slot-capacity" type="number" min="0" value="${esc(
+      Number.isInteger(slot.capacity) ? slot.capacity : 1,
+    )}" aria-label="How many people can bring this — 0 for no limit" />
     <input type="hidden" name="slot-id" value="${esc(slot.id)}" />
     <button type="button" class="btn link danger" data-remove-slot>Remove</button>
   </div>`;
@@ -516,10 +528,11 @@ function eventFormHtml(event) {
       </div>
       <div class="field">
         <label for="ev-host-limit">How many hosts</label>
-        <input id="ev-host-limit" name="hostLimit" type="number" min="1" max="20" value="${esc(event?.hostLimit || 1)}" />
+        <input id="ev-host-limit" name="hostLimit" type="number" min="1" value="${esc(event?.hostLimit || 1)}" />
       </div>
       <div class="field">
-        <label>Food slots <span class="help">People pick one of these and say what they'll bring.</span></label>
+        <label>Food slots <span class="help">People pick one of these and say what they'll bring. Add as many as you
+          like; the number beside each is how many people can claim it — set it to 0 for no limit.</span></label>
         <div class="slot-editor" data-slot-editor>${slots.map((s) => slotEditorRow(s)).join('')}</div>
         <div class="form-actions">
           <button type="button" class="btn" data-add-slot>+ Add slot</button>
@@ -547,7 +560,7 @@ function collectSlots(form) {
     .map((row) => ({
       id: row.querySelector('[name="slot-id"]').value,
       label: row.querySelector('[name="slot-label"]').value.trim(),
-      capacity: Number(row.querySelector('[name="slot-capacity"]').value || 1),
+      capacity: Math.max(0, Number(row.querySelector('[name="slot-capacity"]').value) || 0),
     }))
     .filter((slot) => slot.label);
 }

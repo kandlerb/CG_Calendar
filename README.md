@@ -57,16 +57,19 @@ everything — they just need an organizer to remove an old sign-up for them.
 
 1. An organizer signs in and adds events — title, date, time, place, how many
    hosts are needed, and the food slots they want filled (Main dish, Dessert,
-   Drinks, …). Each slot has a capacity, and you can allow people to bring
-   something outside the listed slots.
+   Drinks, …). Add as many slots as you like — there's no cap. The number
+   beside each slot is how many people can claim it; **set it to 0 and the slot
+   never closes**, so any number of people can bring a side dish. You can also
+   let people bring something outside the listed slots entirely.
 2. You send the group the link (**Copy share link** in the header). "Copy link
    to this event" inside an event gives a link that opens straight to it.
 3. Someone clicks the event and taps **Sign up to host**, leaving their name and
    a note like an address or parking instructions.
-4. Everyone else clicks a food slot and says what they're bringing. Slots close
-   automatically once they're full, so two people can't both claim "Main dish"
-   — and if they try at the same moment, the second one gets a clear message
-   rather than a silent overwrite.
+4. Everyone else clicks a food slot and says what they're bringing. A slot with
+   a limit closes once it's full, so two people can't both claim "Main dish" —
+   and if they try at the same moment, the second one gets a clear message
+   rather than a silent overwrite. A slot set to 0 stays open and just collects
+   names.
 
 ## Configuration
 
@@ -113,10 +116,16 @@ reverse, with the server stopped.
   "description": "Study in Philippians 2.",
   "needsHost": true,
   "hostLimit": 1,
-  "foodSlots": [{ "id": "…", "label": "Main dish", "capacity": 1 }],
+  "foodSlots": [
+    { "id": "…", "label": "Main dish", "capacity": 1 },
+    { "id": "…", "label": "Side dish", "capacity": 0 }
+  ],
   "allowOtherFood": true
 }
 ```
+
+A slot's `capacity` is how many people may claim it; `0` means no limit. There
+is no cap on how many slots an event can have.
 
 Sign-ups store the participant's name, optional contact, what they're bringing,
 and a hash of their browser key. The key hash is never sent back to browsers.
