@@ -91,9 +91,17 @@ export function createSupabaseData(client) {
       if (!session) {
         const result = await client.auth.signInAnonymously();
         if (result.error) {
+          // Two very different causes, and sending someone to check a setting
+          // that is already correct wastes their time.
+          const disabled =
+            result.error.code === 'anonymous_provider_disabled' ||
+            /anonymous sign-ins are disabled/i.test(result.error.message ?? '');
           throw new Error(
-            `Could not start a session: ${result.error.message}. ` +
-              'Check that anonymous sign-ins are enabled for this Supabase project.',
+            disabled
+              ? 'Anonymous sign-ins are turned off for this Supabase project, so nobody can ' +
+                'sign up. An organizer can enable them under Authentication → Sign In / Providers.'
+              : `Could not reach the Supabase project: ${result.error.message}. ` +
+                'Check your connection and reload.',
           );
         }
         session = result.data.session;

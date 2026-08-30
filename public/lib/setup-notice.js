@@ -31,3 +31,35 @@ export function setupNotice() {
       </p>
     </section>`;
 }
+
+/**
+ * Shown when the page cannot start at all — most often because the Supabase
+ * library could not be fetched from the CDN. Without this the page would sit
+ * blank with the failure only visible in the browser console.
+ */
+export function fatalNotice(error) {
+  const target = document.getElementById('calendar');
+  if (!target) return;
+  document.querySelector('.toolbar')?.setAttribute('hidden', '');
+  document.getElementById('agenda')?.setAttribute('hidden', '');
+  for (const id of ['new-event-btn', 'signin-btn', 'signout-btn']) {
+    document.getElementById(id)?.setAttribute('hidden', '');
+  }
+  const detail = error?.message ?? String(error ?? '');
+  target.outerHTML = `
+    <section class="setup">
+      <h2>The calendar could not load</h2>
+      <p>
+        This usually means the browser could not reach one of the services the page
+        needs — the Supabase library on the CDN, or the Supabase project itself.
+      </p>
+      <ol>
+        <li>Check your internet connection and reload.</li>
+        <li>If you are on a network that blocks CDNs, or running an aggressive
+          content blocker, try another network or disable the blocker for this page.</li>
+        <li>If it keeps happening, the details below will tell an organizer what broke.</li>
+      </ol>
+      <p class="hint">Meanwhile, <a href="./demo.html">the demo</a> runs entirely offline.</p>
+      <pre class="fatal-detail">${detail.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c])}</pre>
+    </section>`;
+}
