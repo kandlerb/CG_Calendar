@@ -1,5 +1,7 @@
 # CG Calendar
 
+[![Tests](https://github.com/kandlerb/CG_Calendar/actions/workflows/test.yml/badge.svg)](https://github.com/kandlerb/CG_Calendar/actions/workflows/test.yml)
+
 A shareable calendar for a community group. You post the events, then send one
 link to the group. Anyone with the link can open an event and either **sign up
 to host it** or **say what food they'll bring**. Only the organizers you name
@@ -17,7 +19,8 @@ CG_ORGANIZERS="brian:pick-a-long-passphrase" npm start
 
 That's the whole install: the app has no npm dependencies.
 
-Run the tests with `npm test`.
+Run the tests with `npm test`. They also run in GitHub Actions on every push
+and pull request, against Node 20, 22 and 24.
 
 ## Who can do what
 
@@ -166,4 +169,5 @@ src/store.js       the JSON file store
 src/validate.js    input validation
 public/            the calendar page (no framework, no build step)
 test/api.test.js   API and permission tests
+.github/workflows/ runs the tests on Node 20, 22 and 24
 ```
