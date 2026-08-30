@@ -34,18 +34,14 @@ developer tools still can't add an event or double-book the main dish.
 
 About fifteen minutes, once.
 
-> **This repository is already pointed at a project.** Steps 1, 2 and 5 are
-> done: the Supabase project `CG_Calendar` has the tables, the row level
-> security and the capacity trigger from `supabase/schema.sql`, and
-> `public/config.js` holds its URL and publishable key. Two things still need
-> a human in the dashboard, because neither can be set from SQL:
+> **This repository is already set up.** Every step below is done for the
+> Supabase project `CG_Calendar`: the tables, row level security and capacity
+> trigger from `supabase/schema.sql` are applied, anonymous sign-ins are on,
+> Brian and Timothy are organizers, and `public/config.js` holds the project
+> URL and publishable key. Step 6 reports 8 of 8 passing.
 >
-> * **Step 3 — turn on anonymous sign-ins.** Until this is on, nobody can sign
->   up to host or bring food.
-> * **Step 4 — add yourself as an organizer.** Until this is done, nobody can
->   create events.
->
-> Then run step 6 to confirm.
+> The steps are kept for reference — follow them to point this calendar at a
+> different Supabase project, or to add another organizer (step 4).
 
 ### 1. Create the Supabase project
 
@@ -75,8 +71,9 @@ attempt then fails with:
 
 ### 4. Add yourself as an organizer
 
-**Authentication → Users → Add user**, with an email and password. (Tick
-"Auto Confirm User" so there's no confirmation email to chase.)
+**Authentication → Users → Add user**, with an email and password. Tick
+**Auto Confirm User** — without it the account cannot sign in at all until
+someone confirms the address, and the failure looks like a wrong password.
 
 Then back in the SQL editor, make that user an organizer:
 
