@@ -63,8 +63,15 @@ to run more than once.
 **Authentication → Sign In / Providers → Anonymous sign-ins → enable.**
 
 This is what lets someone sign up without making an account, while still being
-able to come back later and change or cancel *their own* sign-up. Without it,
-nobody can sign up for anything.
+able to come back later and change or cancel *their own* sign-up. It is easy to
+miss, and the calendar looks fine until someone tries to sign up — every
+attempt then fails with:
+
+```
+{"code":422,"error_code":"anonymous_provider_disabled","msg":"Anonymous sign-ins are disabled"}
+```
+
+`scripts/verify-supabase.mjs` (step 6) checks this for you.
 
 ### 4. Add yourself as an organizer
 
@@ -116,16 +123,21 @@ node scripts/verify-supabase.mjs https://<ref>.supabase.co <anon-key> you@exampl
 
 Every check names what to fix if it fails.
 
-### 7. Push, and the site deploys itself
+### 7. Turn on GitHub Pages
 
-Pushing to `main` runs the deploy workflow, which turns GitHub Pages on for the
-repository if it isn't already, publishes `public/`, and prints the URL in the
-Actions log — usually `https://kandlerb.github.io/CG_Calendar/`. That's the
-link you send your group.
+**Settings → Pages → Source → GitHub Actions.** This one is unavoidably manual:
+creating a Pages site needs repository admin rights, which the token workflows
+run with does not have. A deploy before this step fails with:
 
-If your account or organization blocks workflows from enabling Pages, set it by
-hand once under **Settings → Pages → Source → GitHub Actions** and re-run the
-workflow.
+```
+Get Pages site failed. Error: Not Found
+Create Pages site failed. Error: Resource not accessible by integration
+```
+
+Once it's set, push to `main` (or re-run the deploy workflow). It publishes
+`public/` and prints the URL in the Actions log — usually
+`https://kandlerb.github.io/CG_Calendar/`. That's the link you send your
+group.
 
 ## Who can do what
 
