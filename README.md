@@ -102,13 +102,16 @@ node scripts/verify-supabase.mjs https://<ref>.supabase.co <anon-key> you@exampl
 
 Every check names what to fix if it fails.
 
-### 7. Turn on GitHub Pages
+### 7. Push, and the site deploys itself
 
-In this repository: **Settings → Pages → Source → GitHub Actions**.
+Pushing to `main` runs the deploy workflow, which turns GitHub Pages on for the
+repository if it isn't already, publishes `public/`, and prints the URL in the
+Actions log — usually `https://kandlerb.github.io/CG_Calendar/`. That's the
+link you send your group.
 
-Then push to `main`. The deploy workflow publishes `public/` and prints the URL
-in the Actions log — usually `https://kandlerb.github.io/CG_Calendar/`. That's
-the link you send your group.
+If your account or organization blocks workflows from enabling Pages, set it by
+hand once under **Settings → Pages → Source → GitHub Actions** and re-run the
+workflow.
 
 ## Who can do what
 
