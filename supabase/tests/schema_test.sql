@@ -69,6 +69,7 @@ values ('11111111-1111-1111-1111-111111111111', 'Brian');
 \set organizer  '''11111111-1111-1111-1111-111111111111'''
 \set anna       '''22222222-2222-2222-2222-222222222222'''
 \set bob        '''33333333-3333-3333-3333-333333333333'''
+\set second     '''44444444-4444-4444-4444-444444444444'''
 
 -- ---------------------------------------------------------------------------
 -- Only organizers may create or change events
@@ -263,6 +264,46 @@ select tests_expect_error(
   $$select public.save_event('{"title":"Bad slot","event_date":"2026-09-02"}'::jsonb, '[{"label":"Salad","capacity":-1}]'::jsonb)$$,
   'food_slots_capacity_check',
   'a food slot cannot have a negative capacity');
+
+-- ---------------------------------------------------------------------------
+-- Your own display name
+-- ---------------------------------------------------------------------------
+--
+-- Being an organizer is granted from the dashboard; the label the header shows
+-- is not, so each organizer may set their own and nobody else's.
+
+select tests_become(:organizer::uuid);
+update public.organizers set name = 'Kandler Baker' where user_id = :organizer::uuid;
+select tests_assert(
+  (select name from public.organizers where user_id = :organizer::uuid) = 'Kandler Baker',
+  'an organizer can rename themselves');
+
+-- A second organizer, to prove the policy is scoped to the caller's own row.
+select tests_become(null);
+reset role;
+insert into auth.users (id, email) values (:second::uuid, 'second@example.com');
+insert into public.organizers (user_id, name) values (:second::uuid, 'Timothy');
+
+select tests_become(:organizer::uuid);
+update public.organizers set name = 'Hijacked' where user_id = :second::uuid;
+select tests_assert(
+  (select count(*) from public.organizers where name = 'Hijacked') = 0,
+  'an organizer cannot rename another organizer');
+
+select tests_expect_error(
+  format($$update public.organizers set user_id = '%s' where user_id = '%s'$$, :second, :organizer),
+  'permission denied',
+  'an organizer cannot repoint their row at someone else');
+
+select tests_become(:anna::uuid);
+update public.organizers set name = 'Sneaky' where user_id = :organizer::uuid;
+select tests_assert(
+  (select count(*) from public.organizers where name = 'Sneaky') = 0,
+  'a participant cannot rename an organizer');
+
+reset role;
+delete from public.organizers where user_id = :second::uuid;
+delete from auth.users where id = :second::uuid;
 
 -- ---------------------------------------------------------------------------
 -- Table privileges
