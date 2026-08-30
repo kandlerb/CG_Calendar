@@ -14,6 +14,16 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 psql -v ON_ERROR_STOP=1 -q -d postgres -c "drop database if exists ${DB}"
 psql -v ON_ERROR_STOP=1 -q -d postgres -c "create database ${DB}"
 
-for file in supabase/tests/harness.sql supabase/schema.sql supabase/tests/schema_test.sql; do
-  psql -v ON_ERROR_STOP=1 -q -d "${DB}" -f "${here}/${file}"
-done
+psql -v ON_ERROR_STOP=1 -q -d "${DB}" -f "${here}/supabase/tests/harness.sql"
+psql -v ON_ERROR_STOP=1 -q -d "${DB}" -f "${here}/supabase/schema.sql"
+
+# Captured so we can insist the assertions actually ran. ON_ERROR_STOP already
+# fails the run on a broken assertion, but an empty or skipped test file would
+# otherwise exit 0 and look like a pass.
+output="$(psql -v ON_ERROR_STOP=1 -q -d "${DB}" -f "${here}/supabase/tests/schema_test.sql")"
+echo "${output}"
+
+if ! grep -q 'PASSED: [1-9][0-9]* assertions' <<<"${output}"; then
+  echo "ERROR: the schema tests did not report any passing assertions." >&2
+  exit 1
+fi

@@ -30,8 +30,10 @@ jobs:
         env:
           POSTGRES_PASSWORD: postgres
         ports: ['5432:5432']
+        # pg_isready needs -U postgres; without it the health check connects as
+        # root and logs a misleading "role does not exist" FATAL.
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
