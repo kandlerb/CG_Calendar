@@ -6,17 +6,41 @@ on:
   pull_request:
 
 jobs:
-  test:
+  unit:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         node-version: ['20', '22', '24']
-    name: node ${{ matrix.node-version }}
+    name: unit (node ${{ matrix.node-version }})
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-      # The app has no dependencies, so there is nothing to install.
+      # The site has no dependencies, so there is nothing to install.
       - run: npm test
+
+  schema:
+    name: schema (postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      # Proves the row level security rules and the capacity trigger in
+      # supabase/schema.sql actually hold, against a real PostgreSQL.
+      - run: ./scripts/test-schema.sh
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres

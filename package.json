@@ -2,16 +2,15 @@
   "name": "cg-calendar",
   "version": "1.0.0",
   "private": true,
-  "description": "Shareable community group calendar with host and food sign-ups",
+  "description": "Shareable community group calendar - a static site on GitHub Pages backed by Supabase",
   "type": "module",
-  "main": "server.js",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "test:schema": "./scripts/test-schema.sh",
+    "serve": "python3 -m http.server 8000 --directory public"
   },
   "license": "MIT"
 }

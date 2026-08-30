@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Community Group Calendar</title>
+    <title>Community Group Calendar — demo</title>
     <meta name="description" content="Sign up to host community group events and bring food." />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%97%93%EF%B8%8F%3C/text%3E%3C/svg%3E" />
     <link rel="stylesheet" href="./styles.css" />
@@ -12,7 +12,7 @@
     <header class="topbar">
       <div class="brand">
         <h1 id="app-name">Community Group Calendar</h1>
-        <p class="tagline">Click an event to host it or to say what you'll bring.</p>
+        <p class="tagline">Demo — try anything you like. Nothing is saved.</p>
       </div>
       <div class="topbar-actions">
         <button type="button" id="share-btn" class="btn ghost">Copy share link</button>
@@ -45,22 +45,15 @@
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
     <script type="module">
-      import { APP_NAME, SUPABASE_ANON_KEY, SUPABASE_URL } from './config.js';
-      import { setupNotice } from './lib/setup-notice.js';
-
-      document.getElementById('app-name').textContent = APP_NAME;
-      document.title = APP_NAME;
-
-      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-        setupNotice();
-      } else {
-        const [{ createClient }, { createSupabaseData }, { startApp }] = await Promise.all([
-          import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.4/+esm'),
-          import('./lib/supabase-data.js'),
-          import('./app.js'),
-        ]);
-        startApp(createSupabaseData(createClient(SUPABASE_URL, SUPABASE_ANON_KEY)));
-      }
+      // The demo runs the whole calendar against in-memory data, so it needs
+      // no Supabase project. Reloading the page starts over.
+      const [{ createDemoData }, { startApp }] = await Promise.all([
+        import('./lib/demo-data.js'),
+        import('./app.js'),
+      ]);
+      document.getElementById('app-name').textContent = 'Community Group Calendar (demo)';
+      document.title = 'Community Group Calendar — demo';
+      startApp(createDemoData());
     </script>
   </body>
 </html>

@@ -7,20 +7,90 @@ link to the group. Anyone with the link can open an event and either **sign up
 to host it** or **say what food they'll bring**. Only the organizers you name
 can create, edit, or delete events.
 
-No accounts for participants, no database server, no build step — it's plain
-Node.js with a JSON data file, so it runs anywhere Node runs.
+It's a plain website — nothing to install, nothing for your group to sign up
+for. The page is static files on **GitHub Pages**; the events and sign-ups live
+in **Supabase**, which is free at this size.
 
-## Quick start
+## Try it before you set anything up
 
-```bash
-CG_ORGANIZERS="brian:pick-a-long-passphrase" npm start
-# open http://localhost:3000
+Open **`demo.html`** on the deployed site (or run `npm run serve` and visit
+<http://localhost:8000/demo.html>). The demo runs the entire calendar against
+in-memory data with no backend at all — create events, sign up, claim food
+slots. Reloading the page starts over.
+
+## Why Supabase is needed
+
+GitHub Pages serves files; it can't remember anything. For everyone in the
+group to see the same sign-ups, the data has to live somewhere off the page.
+Supabase is that somewhere: a hosted Postgres database with a built-in API. Its
+free tier is far more than a community group calendar will ever use.
+
+It also enforces the part that matters. The rules about **who may create
+events** and **whether a food slot is still open** live in the database
+(`supabase/schema.sql`), not in the browser. Someone poking at the page with
+developer tools still can't add an event or double-book the main dish.
+
+## Setting it up
+
+About fifteen minutes, once.
+
+### 1. Create the Supabase project
+
+Sign up at [supabase.com](https://supabase.com) and create a project. Any
+region near your group is fine.
+
+### 2. Create the tables and rules
+
+In the Supabase dashboard, open **SQL editor → New query**, paste in the whole
+of [`supabase/schema.sql`](supabase/schema.sql), and click **Run**. It's safe
+to run more than once.
+
+### 3. Turn on anonymous sign-ins
+
+**Authentication → Sign In / Providers → Anonymous sign-ins → enable.**
+
+This is what lets someone sign up without making an account, while still being
+able to come back later and change or cancel *their own* sign-up. Without it,
+nobody can sign up for anything.
+
+### 4. Add yourself as an organizer
+
+**Authentication → Users → Add user**, with an email and password. (Tick
+"Auto Confirm User" so there's no confirmation email to chase.)
+
+Then back in the SQL editor, make that user an organizer:
+
+```sql
+insert into public.organizers (user_id, name)
+select id, 'Brian' from auth.users where email = 'you@example.com'
+on conflict (user_id) do update set name = excluded.name;
 ```
 
-That's the whole install: the app has no npm dependencies.
+Repeat for each person who should be able to manage events. Everyone else in
+the group needs no account at all.
 
-Run the tests with `npm test`. They also run in GitHub Actions on every push
-and pull request, against Node 20, 22 and 24.
+### 5. Point the site at your project
+
+In the dashboard, **Project Settings → API** gives you a **Project URL** and an
+**anon public** key. Put both in [`public/config.js`](public/config.js):
+
+```js
+export const SUPABASE_URL = 'https://abcdefgh.supabase.co';
+export const SUPABASE_ANON_KEY = 'eyJhbGciOi...';
+export const APP_NAME = 'Riverside Community Group';
+```
+
+Both are meant to be public — they're visible in the page source of every
+Supabase site. What protects your data is the row level security from step 2.
+**Never put the `service_role` key here**; it bypasses those rules entirely.
+
+### 6. Turn on GitHub Pages
+
+In this repository: **Settings → Pages → Source → GitHub Actions**.
+
+Then push to `main`. The deploy workflow publishes `public/` and prints the URL
+in the Actions log — usually `https://kandlerb.github.io/CG_Calendar/`. That's
+the link you send your group.
 
 ## Who can do what
 
@@ -33,141 +103,76 @@ and pull request, against Node 20, 22 and 24.
 | Create, edit, or delete events | **no** | yes |
 | Remove anyone's sign-up | no | yes |
 
-Organizers are set with the `CG_ORGANIZERS` environment variable:
+Organizers sign in with the button in the header, using the email and password
+from step 4. Everyone else just opens the link — no account, no password, no
+app to install. Their browser quietly holds an anonymous session, which is what
+lets them manage the sign-ups they made. If they clear their browser data they
+can still see everything; they'd just need an organizer to remove an old
+sign-up for them.
 
-```bash
-CG_ORGANIZERS="brian:long-passphrase-one,jamie:long-passphrase-two"
-```
+## Using it
 
-Names and passwords are separated by a colon; entries by commas or newlines
-(so avoid commas inside passwords — or use the JSON form:
-`CG_ORGANIZERS='[{"name":"brian","password":"…"}]'`). Passwords are never
-written to disk in the clear; they are hashed with scrypt at startup and
-compared in constant time. Organizers sign in from the button in the header and
-stay signed in for 30 days.
+1. An organizer adds events — title, date, time, place, how many hosts are
+   needed, and the food slots to fill. Add as many slots as you like; there's
+   no cap. The number beside each slot is how many people can claim it — **set
+   it to 0 for no limit**, so any number of people can bring a side dish.
+2. Send the group the link. "Copy link to this event" inside an event gives a
+   link that opens straight to that week.
+3. Someone taps **Sign up to host**, leaving a note like the address or where
+   to park.
+4. Everyone else claims a food slot and says what they're bringing. A slot with
+   a limit closes once it fills, so two people can't both claim the main dish —
+   the database refuses the second one rather than silently overwriting.
 
-If you start the server without `CG_ORGANIZERS`, it creates a single organizer
-named `organizer` with a random password, prints it once, and saves it to
-`data/admin-password.txt`. That's fine for trying it out; set `CG_ORGANIZERS`
-for real use.
+## Day-to-day
 
-Participants don't sign in at all. Their browser keeps a random key in
-`localStorage`, which is what lets them come back and edit or cancel the
-sign-up they made. If they clear their browser data they can still see
-everything — they just need an organizer to remove an old sign-up for them.
+**Adding or removing an organizer** is the SQL in step 4, or
+`delete from public.organizers where user_id = (select id from auth.users where email = '…');`
 
-## How the group uses it
+**Backups**: Supabase's dashboard has **Database → Backups**. For a copy you
+hold yourself, the table editor exports any table to CSV.
 
-1. An organizer signs in and adds events — title, date, time, place, how many
-   hosts are needed, and the food slots they want filled (Main dish, Dessert,
-   Drinks, …). Add as many slots as you like — there's no cap. The number
-   beside each slot is how many people can claim it; **set it to 0 and the slot
-   never closes**, so any number of people can bring a side dish. You can also
-   let people bring something outside the listed slots entirely.
-2. You send the group the link (**Copy share link** in the header). "Copy link
-   to this event" inside an event gives a link that opens straight to it.
-3. Someone clicks the event and taps **Sign up to host**, leaving their name and
-   a note like an address or parking instructions.
-4. Everyone else clicks a food slot and says what they're bringing. A slot with
-   a limit closes once it's full, so two people can't both claim "Main dish" —
-   and if they try at the same moment, the second one gets a clear message
-   rather than a silent overwrite. A slot set to 0 stays open and just collects
-   names.
-
-## Configuration
-
-| Variable | Default | What it does |
-| --- | --- | --- |
-| `PORT` | `3000` | Port to listen on |
-| `CG_ORGANIZERS` | — | Who may create and change events (see above) |
-| `CG_APP_NAME` | `Community Group Calendar` | Title shown in the header |
-| `CG_DATA_FILE` | `./data/calendar.json` | Where events and sign-ups are stored |
-| `CG_FORCE_SECURE_COOKIES` | `0` | Set to `1` behind an HTTPS proxy that doesn't send `X-Forwarded-Proto` |
-
-Copy `.env.example` if your host reads a `.env` file; otherwise set these in
-your host's dashboard.
-
-## Deploying
-
-The app is one process and one file of state, so most hosts work:
-
-- **Render / Railway / Fly.io / a small VPS**: build command none, start command
-  `npm start`, and set the environment variables above.
-- **Attach a persistent disk** and point `CG_DATA_FILE` at it (e.g.
-  `/data/calendar.json`). On hosts with ephemeral filesystems, everything is
-  lost on redeploy without one.
-- **Serve it over HTTPS.** Organizer passwords and session cookies travel over
-  the connection; the session cookie is marked `Secure` automatically when the
-  server sees an HTTPS request.
-
-Backing up is `cp data/calendar.json somewhere-safe.json`. Restoring is the
-reverse, with the server stopped.
-
-## Data model
-
-`data/calendar.json` holds three lists: `events`, `signups`, and organizer
-`sessions`. An event looks like this:
-
-```json
-{
-  "id": "…",
-  "title": "Community Group — Week 1",
-  "date": "2026-09-02",
-  "startTime": "18:30",
-  "endTime": "20:30",
-  "location": "Brian's house",
-  "description": "Study in Philippians 2.",
-  "needsHost": true,
-  "hostLimit": 1,
-  "foodSlots": [
-    { "id": "…", "label": "Main dish", "capacity": 1 },
-    { "id": "…", "label": "Side dish", "capacity": 0 }
-  ],
-  "allowOtherFood": true
-}
-```
-
-A slot's `capacity` is how many people may claim it; `0` means no limit. There
-is no cap on how many slots an event can have.
-
-Sign-ups store the participant's name, optional contact, what they're bringing,
-and a hash of their browser key. The key hash is never sent back to browsers.
-
-## HTTP API
-
-Everything the page does is available directly. Mutating requests need the
-`X-CG-App: 1` header (which blocks cross-site form posts), and participants
-identify themselves with `X-Participant-Key`.
-
-| Method | Path | Who |
-| --- | --- | --- |
-| `GET` | `/api/config` | anyone |
-| `POST` / `DELETE` | `/api/session` | sign in / sign out |
-| `GET` | `/api/events?from=&to=` | anyone |
-| `POST` `PATCH` `DELETE` | `/api/events[/:id]` | organizers only |
-| `GET` | `/api/events/:id` | anyone |
-| `POST` | `/api/events/:id/signups` | anyone |
-| `PATCH` / `DELETE` | `/api/signups/:id` | the person who signed up, or an organizer |
+**Cost**: the free tier covers this comfortably. Free projects pause after a
+week with no activity and resume from the dashboard — a calendar people check
+weekly won't hit that.
 
 ## What this is not
 
-The share link is unlisted, not secret — anyone who has it can read the
-calendar and add a sign-up under any name. That matches how a community group
-actually works, but it means the calendar shouldn't hold anything you wouldn't
-want forwarded. The restriction that is enforced is the one on **events**:
-creating, editing, and deleting them requires an organizer session, checked on
-the server for every request.
+The share link is unlisted, not secret. Anyone who has it can read the calendar
+and add a sign-up under any name — that's the trade-off that keeps it
+frictionless for a community group, but it means the calendar shouldn't hold
+anything you'd mind being forwarded. The restriction that *is* enforced is on
+events: creating, editing, and deleting them requires an organizer account, and
+the database checks that on every request.
+
+## Development
+
+```bash
+npm test          # unit tests for the date and model logic (no dependencies)
+npm run test:schema  # applies schema.sql to a scratch database and tests the rules
+npm run serve     # serves public/ at http://localhost:8000
+```
+
+`npm run test:schema` needs a PostgreSQL you can reach (`PGHOST`, `PGUSER`,
+`PGPASSWORD` as usual). It creates a scratch database, applies the schema, and
+checks the security rules hold — that a participant can't create an event,
+can't edit someone else's sign-up, can't post as someone else, and can't take a
+slot that's already full. CI runs both on every push.
 
 ## Layout
 
 ```
-server.js          entry point: reads env, starts the server
-src/server.js      HTTP plumbing, static files, cookies, CSRF header check
-src/api.js         the endpoints above, plus capacity and permission rules
-src/auth.js        organizer accounts, password hashing, sessions
-src/store.js       the JSON file store
-src/validate.js    input validation
-public/            the calendar page (no framework, no build step)
-test/api.test.js   API and permission tests
-.github/workflows/ runs the tests on Node 20, 22 and 24
+public/                the website — this is what GitHub Pages serves
+  index.html           the calendar, wired to Supabase
+  demo.html            the same app on in-memory data, no backend
+  config.js            your Supabase URL and anon key
+  app.js               all the page's behaviour
+  lib/dates.js         calendar maths
+  lib/model.js         turning rows into what's on screen
+  lib/supabase-data.js everything that talks to Supabase
+  lib/demo-data.js     the stand-in used by demo.html
+supabase/schema.sql    tables, row level security, capacity rules
+supabase/tests/        those rules, tested against a real PostgreSQL
+test/                  unit tests for the browser modules
+scripts/test-schema.sh runs the schema tests
 ```

@@ -306,3 +306,34 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   .day { min-height: 84px; }
   main { padding: 14px; }
 }
+
+.setup {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 24px;
+  max-width: 640px;
+  margin: 0 auto;
+}
+.setup h2 { font-size: 18px; margin-bottom: 10px; }
+.setup ol { padding-left: 20px; margin: 14px 0; }
+.setup li { margin-bottom: 8px; }
+.setup code {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 5px;
+  font-size: 13px;
+}
+.setup a { color: var(--accent); }
+.setup .hint { color: var(--muted); font-size: 13px; margin-bottom: 0; }
+
+.demo-banner {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 20px;
+  font-size: 13px;
+  text-align: center;
+}
