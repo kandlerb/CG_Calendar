@@ -34,6 +34,19 @@ developer tools still can't add an event or double-book the main dish.
 
 About fifteen minutes, once.
 
+> **This repository is already pointed at a project.** Steps 1, 2 and 5 are
+> done: the Supabase project `CG_Calendar` has the tables, the row level
+> security and the capacity trigger from `supabase/schema.sql`, and
+> `public/config.js` holds its URL and publishable key. Two things still need
+> a human in the dashboard, because neither can be set from SQL:
+>
+> * **Step 3 — turn on anonymous sign-ins.** Until this is on, nobody can sign
+>   up to host or bring food.
+> * **Step 4 — add yourself as an organizer.** Until this is done, nobody can
+>   create events.
+>
+> Then run step 6 to confirm.
+
 ### 1. Create the Supabase project
 
 Sign up at [supabase.com](https://supabase.com) and create a project. Any
@@ -71,12 +84,13 @@ the group needs no account at all.
 
 ### 5. Point the site at your project
 
-In the dashboard, **Project Settings → API** gives you a **Project URL** and an
-**anon public** key. Put both in [`public/config.js`](public/config.js):
+In the dashboard, **Project Settings → API** gives you a **Project URL** and a
+publishable key (`sb_publishable_...`, listed as **anon public** on older
+projects). Put both in [`public/config.js`](public/config.js):
 
 ```js
 export const SUPABASE_URL = 'https://abcdefgh.supabase.co';
-export const SUPABASE_ANON_KEY = 'eyJhbGciOi...';
+export const SUPABASE_ANON_KEY = 'sb_publishable_...';
 export const APP_NAME = 'Riverside Community Group';
 ```
 

@@ -8,8 +8,8 @@
 //   URL          → "Project URL"
 //   ANON KEY     → "anon public" (also called the publishable key)
 
-export const SUPABASE_URL = '';
-export const SUPABASE_ANON_KEY = '';
+export const SUPABASE_URL = 'https://zibbxgowjjgtpmipwrew.supabase.co';
+export const SUPABASE_ANON_KEY = 'sb_publishable_BiC_JlR7UVzHX3Km44lDhQ_0-1y0Kzg';
 
 // Shown in the page header.
 export const APP_NAME = 'Community Group Calendar';

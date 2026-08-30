@@ -102,6 +102,13 @@ alter table public.signups    enable row level security;
 -- say which rows it may touch. "anon" is a visitor with no session, so it can
 -- only read; everyone who signs in (including anonymous sign-ins) is
 -- "authenticated" and may add sign-ups.
+-- Supabase's default privileges hand every new table in "public" to anon and
+-- authenticated, which is wider than the model above: it gives a signed-out
+-- visitor INSERT and TRUNCATE, and TRUNCATE is not filtered by row level
+-- security. Clear that first, so the grants below are the whole picture.
+revoke all on public.organizers, public.events, public.food_slots, public.signups
+  from anon, authenticated;
+
 grant select on public.organizers, public.events, public.food_slots, public.signups
   to anon, authenticated;
 grant insert, update, delete on public.events, public.food_slots, public.signups
@@ -212,6 +219,10 @@ begin
 end;
 $$;
 
+-- Nothing calls this by hand; the trigger machinery checks the privilege when
+-- the trigger is created, not when it fires. Revoking keeps it off the REST API.
+revoke all on function public.enforce_signup_capacity() from public, anon, authenticated;
+
 drop trigger if exists signups_capacity on public.signups;
 create trigger signups_capacity
   before insert on public.signups
@@ -301,5 +312,5 @@ begin
 end;
 $$;
 
-revoke all on function public.save_event(jsonb, jsonb) from public;
+revoke all on function public.save_event(jsonb, jsonb) from public, anon, authenticated;
 grant execute on function public.save_event(jsonb, jsonb) to authenticated;
