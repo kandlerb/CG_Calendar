@@ -34,3 +34,9 @@ $$;
 
 grant usage on schema public, auth to anon, authenticated;
 grant select on auth.users to anon, authenticated;
+
+-- Supabase hands every table and function later created in "public" to anon
+-- and authenticated. schema.sql revokes what it does not want, so the tests
+-- have to start from the same over-wide grant or they would prove nothing.
+alter default privileges in schema public grant all on tables to anon, authenticated;
+alter default privileges in schema public grant all on functions to anon, authenticated;

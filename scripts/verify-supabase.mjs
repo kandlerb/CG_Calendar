@@ -71,7 +71,11 @@ const errorText = (data) =>
 console.log(`\nChecking ${base}\n`);
 console.log('Visitor (anon key only)');
 
-const health = await api('/rest/v1/');
+// Asks the auth service what it is configured for. It needs nothing from
+// schema.sql, so it separates "wrong URL or key" from "the tables are
+// missing". (The REST root, /rest/v1/, is not usable here — it now answers
+// "Secret API key required" even when the publishable key is perfectly good.)
+const health = await api('/auth/v1/settings');
 if (health.status === 0) {
   fail('the project is reachable', errorText(health.data));
   console.log('\nCheck the project URL — it looks like https://<ref>.supabase.co\n');
@@ -83,6 +87,8 @@ if (health.status === 401 || health.status === 403) {
   process.exit(1);
 }
 ok('the project is reachable and the anon key is accepted');
+
+const anonymousEnabled = health.data?.external?.anonymous_users === true;
 
 // --- schema present -------------------------------------------------------
 
@@ -104,13 +110,18 @@ check(
 
 // --- anonymous sign-in ----------------------------------------------------
 
-const anonSession = await api('/auth/v1/signup', { method: 'POST', body: {} });
-const anonToken = anonSession.data?.access_token;
-if (!anonToken) {
+const anonSession = anonymousEnabled
+  ? await api('/auth/v1/signup', { method: 'POST', body: {} })
+  : null;
+const anonToken = anonSession?.data?.access_token;
+if (!anonymousEnabled) {
   fail(
     'anonymous sign-ins are enabled',
-    `${anonSession.status}: ${errorText(anonSession.data)} — turn them on under Authentication → Sign In / Providers`,
+    'turn them on under Authentication → Sign In / Providers → Anonymous sign-ins. ' +
+      'Until then nobody can sign up to host or bring food.',
   );
+} else if (!anonToken) {
+  fail('anonymous sign-ins are enabled', `${anonSession.status}: ${errorText(anonSession.data)}`);
 } else {
   ok('anonymous sign-ins are enabled', 'visitors can sign up for things');
 }

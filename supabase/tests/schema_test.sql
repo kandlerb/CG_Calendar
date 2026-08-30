@@ -264,6 +264,63 @@ select tests_expect_error(
   'food_slots_capacity_check',
   'a food slot cannot have a negative capacity');
 
+-- ---------------------------------------------------------------------------
+-- Table privileges
+-- ---------------------------------------------------------------------------
+--
+-- Row level security decides which rows a statement may touch, but TRUNCATE
+-- ignores it entirely, so a signed-out visitor must not hold the privilege in
+-- the first place. Supabase grants new tables in "public" to anon by default;
+-- schema.sql revokes that, and these check it stayed revoked.
+
+select tests_assert(
+  has_table_privilege('anon', 'public.events', 'select'),
+  'a signed-out visitor can read events');
+
+select tests_assert(
+  not has_table_privilege('anon', 'public.events', 'insert'),
+  'a signed-out visitor has no INSERT on events');
+
+select tests_assert(
+  not has_table_privilege('anon', 'public.signups', 'insert'),
+  'a signed-out visitor has no INSERT on sign-ups');
+
+select tests_assert(
+  not has_table_privilege('anon', 'public.events', 'truncate'),
+  'a signed-out visitor cannot TRUNCATE events');
+
+select tests_assert(
+  not has_table_privilege('authenticated', 'public.events', 'truncate'),
+  'a signed-in visitor cannot TRUNCATE events');
+
+select tests_assert(
+  not has_table_privilege('anon', 'public.organizers', 'insert'),
+  'nobody can add themselves to the organizer list');
+
+select tests_assert(
+  not has_table_privilege('authenticated', 'public.organizers', 'insert'),
+  'a signed-in visitor cannot add themselves as an organizer');
+
+select tests_assert(
+  has_table_privilege('authenticated', 'public.signups', 'insert'),
+  'a signed-in visitor can still add sign-ups');
+
+-- The guard inside save_event() already refuses non-organizers; anon should
+-- not reach the function at all.
+select tests_assert(
+  not has_function_privilege('anon', 'public.save_event(jsonb,jsonb)', 'execute'),
+  'a signed-out visitor cannot call save_event()');
+
+select tests_assert(
+  has_function_privilege('authenticated', 'public.save_event(jsonb,jsonb)', 'execute'),
+  'a signed-in organizer can call save_event()');
+
+-- A trigger function is never called by hand; PostgreSQL checks the privilege
+-- when the trigger is created, not when it fires.
+select tests_assert(
+  not has_function_privilege('anon', 'public.enforce_signup_capacity()', 'execute'),
+  'the capacity trigger function is not on the REST API');
+
 -- Deleting an event takes its slots and sign-ups with it.
 delete from public.events where id = :'event_id'::uuid;
 select tests_assert((select count(*) from public.signups) = 0, 'deleting an event removes its sign-ups');
