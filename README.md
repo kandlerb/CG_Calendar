@@ -84,7 +84,25 @@ Both are meant to be public — they're visible in the page source of every
 Supabase site. What protects your data is the row level security from step 2.
 **Never put the `service_role` key here**; it bypasses those rules entirely.
 
-### 6. Turn on GitHub Pages
+### 6. Check it worked
+
+```bash
+node scripts/verify-supabase.mjs https://<ref>.supabase.co <anon-key>
+```
+
+This asks your project the questions that matter: are the tables there, are
+anonymous sign-ins on, and does the database actually refuse to let a visitor
+create an event. Add an organizer's email and password to also have it create
+a throwaway event, try to double-book the main dish, and clean up after
+itself:
+
+```bash
+node scripts/verify-supabase.mjs https://<ref>.supabase.co <anon-key> you@example.com 'your-password'
+```
+
+Every check names what to fix if it fails.
+
+### 7. Turn on GitHub Pages
 
 In this repository: **Settings → Pages → Source → GitHub Actions**.
 
@@ -148,9 +166,10 @@ the database checks that on every request.
 ## Development
 
 ```bash
-npm test          # unit tests for the date and model logic (no dependencies)
+npm test             # unit tests for the date and model logic (no dependencies)
 npm run test:schema  # applies schema.sql to a scratch database and tests the rules
-npm run serve     # serves public/ at http://localhost:8000
+npm run serve        # serves public/ at http://localhost:8000
+node scripts/verify-supabase.mjs <url> <anon-key> [email] [password]   # checks a live project
 ```
 
 `npm run test:schema` needs a PostgreSQL you can reach (`PGHOST`, `PGUSER`,
@@ -175,4 +194,5 @@ supabase/schema.sql    tables, row level security, capacity rules
 supabase/tests/        those rules, tested against a real PostgreSQL
 test/                  unit tests for the browser modules
 scripts/test-schema.sh runs the schema tests
+scripts/verify-supabase.mjs checks a live Supabase project is set up right
 ```
