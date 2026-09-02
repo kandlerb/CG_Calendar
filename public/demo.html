@@ -4,40 +4,58 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Community Group Calendar — demo</title>
-    <meta name="description" content="Sign up to host community group events and bring food." />
+    <meta name="description" content="Sign up to host community group events and say what food you'll bring. No account needed." />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%97%93%EF%B8%8F%3C/text%3E%3C/svg%3E" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
+    <a class="skip-link" href="#main">Skip to the calendar</a>
     <header class="topbar">
       <div class="brand">
         <h1 id="app-name">Community Group Calendar</h1>
-        <p class="tagline">Demo — try anything you like. Nothing is saved.</p>
+        <p class="tagline">Demo — try anything you like. Nothing is saved, and a reload starts over.</p>
       </div>
       <div class="topbar-actions">
-        <button type="button" id="share-btn" class="btn ghost">Copy share link</button>
+        <button type="button" id="help-btn" class="btn ghost" aria-controls="intro" aria-expanded="true">
+          How it works
+        </button>
+        <button type="button" id="share-btn" class="btn ghost" title="Copy this calendar's link so you can send it to the group">
+          Copy share link
+        </button>
         <button type="button" id="new-event-btn" class="btn primary" hidden>+ New event</button>
-        <button type="button" id="signin-btn" class="btn ghost">Organizer sign in</button>
         <span id="who" class="who" hidden></span>
         <button type="button" id="signout-btn" class="btn ghost" hidden>Sign out</button>
+        <button type="button" id="signin-btn" class="btn link organizer-link">Organizer sign in</button>
       </div>
     </header>
 
-    <main>
-      <div class="toolbar">
+    <main id="main">
+      <section id="intro" class="intro" aria-label="How this calendar works" hidden></section>
+
+      <section id="loading" class="loading" aria-live="polite">
+        <p class="sr-only">Loading the calendar…</p>
+        <div class="skeleton-bar"></div>
+        <div class="skeleton-grid" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span><span></span>
+        </div>
+      </section>
+
+      <div class="toolbar" hidden>
         <div class="period-nav">
           <button type="button" id="prev" class="btn icon" aria-label="Previous month">&#8249;</button>
           <h2 id="period">&nbsp;</h2>
           <button type="button" id="next" class="btn icon" aria-label="Next month">&#8250;</button>
           <button type="button" id="today" class="btn ghost">Today</button>
         </div>
-        <div class="view-toggle" role="group" aria-label="Calendar view">
+        <div class="view-toggle" role="group" aria-label="How to show the events">
           <button type="button" class="btn toggle" data-view="month">Month</button>
-          <button type="button" class="btn toggle" data-view="list">List</button>
+          <button type="button" class="btn toggle" data-view="list">Upcoming</button>
         </div>
       </div>
 
-      <section id="calendar" class="calendar" aria-label="Month view"></section>
+      <p id="view-note" class="view-note" hidden></p>
+
+      <section id="calendar" class="calendar" aria-label="Month view" hidden></section>
       <section id="agenda" class="agenda" aria-label="Upcoming events" hidden></section>
     </main>
 

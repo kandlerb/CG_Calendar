@@ -41,6 +41,15 @@ export function formatTimeRange({ startTime, endTime }) {
   return endTime ? `${formatTime(startTime)} – ${formatTime(endTime)}` : formatTime(startTime);
 }
 
+/** "Wednesday, October 7" — enough to place a date without the year. */
+export function formatShortDate(value) {
+  return parseISODate(value).toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
+}
+
 export function formatLongDate(value) {
   return parseISODate(value).toLocaleDateString(undefined, {
     weekday: 'long',

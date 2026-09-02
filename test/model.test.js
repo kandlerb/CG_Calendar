@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { eventBadges, groupByDate, shapeEvent, shapeEvents, upcoming } from '../public/lib/model.js';
+import {
+  eventBadges,
+  eventSummary,
+  groupByDate,
+  nextEvent,
+  openFoodSpots,
+  shapeEvent,
+  shapeEvents,
+  upcoming,
+} from '../public/lib/model.js';
 
 const ANNA = 'user-anna';
 const BOB = 'user-bob';
@@ -134,7 +143,7 @@ describe('badges', () => {
   it('asks for a host until one signs up', () => {
     assert.equal(badgeText(event()).includes('Needs a host'), true);
     const hosted = event({ signups: [signup({ id: 'h1', kind: 'host', name: 'Anna', item: '' })] });
-    assert.equal(badgeText(hosted).includes('Host: Anna'), true);
+    assert.equal(badgeText(hosted).includes('Hosted by Anna'), true);
   });
 
   it('counts remaining spots across limited slots only', () => {
@@ -162,6 +171,73 @@ describe('badges', () => {
   });
 });
 
+describe('badge wording', () => {
+  const badgeText = (e) => eventBadges(shapeEvent(e)).map((b) => b.text);
+
+  it('counts the hosts still wanted rather than saying "host(s)"', () => {
+    const text = badgeText(event({ hostLimit: 3 }));
+    assert.equal(text.includes('Needs 3 more hosts'), true);
+  });
+
+  it('says "1 person" and "2 people", never "1 people"', () => {
+    const one = badgeText(event({ signups: [signup({ id: 'f1', slotId: 'main' })] }));
+    assert.equal(one.includes('1 person bringing food'), true);
+    const two = badgeText(
+      event({ signups: [signup({ id: 'f1', slotId: 'main' }), signup({ id: 'f2', slotId: 'sides' })] }),
+    );
+    assert.equal(two.includes('2 people bringing food'), true);
+  });
+
+  it('tells the viewer when one of the sign-ups is their own', () => {
+    const shaped = shapeEvent(event({ signups: [signup({ id: 'f1', slotId: 'main' })] }), { userId: ANNA });
+    assert.equal(eventBadges(shaped).some((b) => b.mine), true);
+    const other = shapeEvent(event({ signups: [signup({ id: 'f1', slotId: 'main' })] }), { userId: BOB });
+    assert.equal(eventBadges(other).some((b) => b.mine), false);
+  });
+});
+
+describe('the one-line summary at the top of an event', () => {
+  it('names everything still missing', () => {
+    const summary = eventSummary(shapeEvent(event({ hostLimit: 2 })));
+    assert.equal(summary.done, false);
+    assert.equal(summary.text, 'Still needed: 2 more hosts and 1 food slot.');
+  });
+
+  it('does not count a slot with no limit as something missing', () => {
+    const summary = eventSummary(
+      shapeEvent(event({ needsHost: false, signups: [signup({ id: 'f1', slotId: 'main' })] })),
+    );
+    assert.equal(summary.done, true);
+    assert.match(summary.text, /extra food is still welcome/);
+  });
+
+  it('says plainly that nothing is left when every slot has a limit and is full', () => {
+    const covered = event({
+      needsHost: false,
+      allowOtherFood: false,
+      foodSlots: [{ id: 'main', label: 'Main dish', capacity: 1, position: 0 }],
+      signups: [signup({ id: 'f1', slotId: 'main' })],
+    });
+    assert.equal(eventSummary(shapeEvent(covered)).text, 'Everything is covered for this event.');
+  });
+});
+
+describe('counting open food spots', () => {
+  it('adds up the room left in limited slots and ignores the rest', () => {
+    const shaped = shapeEvent(
+      event({
+        foodSlots: [
+          { id: 'main', label: 'Main dish', capacity: 1, position: 0 },
+          { id: 'dessert', label: 'Dessert', capacity: 3, position: 1 },
+          { id: 'sides', label: 'Side dish', capacity: 0, position: 2 },
+        ],
+        signups: [signup({ id: 'f1', slotId: 'dessert' })],
+      }),
+    );
+    assert.equal(openFoodSpots(shaped), 3);
+  });
+});
+
 describe('lists', () => {
   it('sorts by date then start time', () => {
     const events = shapeEvents(
@@ -178,6 +254,15 @@ describe('lists', () => {
   it('groups events onto their day', () => {
     const grouped = groupByDate(shapeEvents([event({ id: 'a' }), event({ id: 'b' })], {}));
     assert.equal(grouped.get('2026-09-02').length, 2);
+  });
+
+  it('finds the soonest event on or after today, and null when there is none', () => {
+    const list = shapeEvents(
+      [event({ id: 'past', date: '2026-09-01' }), event({ id: 'soon', date: '2026-09-09' })],
+      {},
+    );
+    assert.equal(nextEvent(list, '2026-09-02').id, 'soon');
+    assert.equal(nextEvent(list, '2026-10-01'), null);
   });
 
   it('keeps today in the upcoming list and drops yesterday', () => {
