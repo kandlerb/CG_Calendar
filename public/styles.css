@@ -88,7 +88,19 @@ h1, h2, h3, h4 { margin: 0; line-height: 1.25; }
 .brand h1 { font-size: 20px; }
 .tagline { margin: 2px 0 0; color: var(--muted); font-size: 13px; max-width: 52ch; }
 .topbar-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.who { font-size: 13px; color: var(--muted); }
+.who {
+  font-size: 13px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  padding: 2px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.who:hover, .who:focus-visible { color: var(--text); background: var(--surface-2); }
 /* Signing in is for the two people who post events, not the twenty who read. */
 .organizer-link { margin-left: 4px; }
 

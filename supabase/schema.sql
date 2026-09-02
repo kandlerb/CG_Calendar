@@ -114,11 +114,21 @@ grant select on public.organizers, public.events, public.food_slots, public.sign
 grant insert, update, delete on public.events, public.food_slots, public.signups
   to authenticated;
 
+-- Your display name is yours to set. The grant names one column, so even with
+-- the policy below nobody can repoint their row at a different user_id.
+grant update (name) on public.organizers to authenticated;
+
 -- Organizers: you may see your own row, and nothing else. Membership is
--- managed from the dashboard, not from the app.
+-- managed from the dashboard, not from the app; your display name is not.
 drop policy if exists organizers_read_self on public.organizers;
 create policy organizers_read_self on public.organizers
   for select using (user_id = auth.uid());
+
+-- Being an organizer is granted from the dashboard, but what the header calls
+-- you is only a label — so you may change your own, and nobody else's.
+drop policy if exists organizers_rename_self on public.organizers;
+create policy organizers_rename_self on public.organizers
+  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 -- Events and their food slots: anyone with the link may read them; only
 -- organizers may write them.

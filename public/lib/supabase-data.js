@@ -128,6 +128,19 @@ export function createSupabaseData(client) {
       return this.init();
     },
 
+    /**
+     * Your own display name. The column grant and the rename policy in
+     * schema.sql are what actually confine this to your row.
+     */
+    async setName(name) {
+      const rows = unwrap(
+        await client.from('organizers').update({ name }).eq('user_id', viewer.id).select('name'),
+      );
+      if (!rows?.length) throw new Error('Could not save that name.');
+      viewer = { ...viewer, name: rows[0].name };
+      return viewer;
+    },
+
     async loadEvents() {
       const rows = unwrap(
         await client

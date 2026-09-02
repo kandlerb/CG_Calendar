@@ -103,6 +103,12 @@ export function createDemoData() {
       return viewer;
     },
 
+    async setName(name) {
+      if (!viewer.isOrganizer) throw new Error('Only organizers have a display name.');
+      viewer = { ...viewer, name };
+      return viewer;
+    },
+
     async loadEvents() {
       return structuredClone(state.events);
     },

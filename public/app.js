@@ -175,6 +175,7 @@ export function startApp(data, { onError } = {}) {
     const organizer = Boolean(state.viewer?.isOrganizer);
     el.who.hidden = !organizer;
     el.who.textContent = organizer ? `Organizer: ${state.viewer.name || state.viewer.email}` : '';
+    el.who.title = organizer ? 'Change how your name appears here' : '';
     el.signOut.hidden = !organizer;
     el.newEvent.hidden = !organizer;
     el.signIn.hidden = organizer;
@@ -373,6 +374,7 @@ export function startApp(data, { onError } = {}) {
     }
     let html = '';
     if (modal.type === 'login') html = loginModalHtml();
+    else if (modal.type === 'rename') html = renameModalHtml();
     else if (modal.type === 'eventForm') html = eventFormHtml(modal.eventId ? eventById(modal.eventId) : null);
     else {
       const event = eventById(modal.eventId);
@@ -430,6 +432,30 @@ export function startApp(data, { onError } = {}) {
         <p class="error" data-error hidden></p>
         <div class="form-actions">
           <button type="submit" class="btn primary">Sign in</button>
+          <button type="button" class="btn ghost" data-close>Cancel</button>
+        </div>
+      </form>`;
+  }
+
+  function renameModalHtml() {
+    const current = state.viewer?.name ?? '';
+    return `
+      <div class="modal-head">
+        <div>
+          <h2 id="modal-title">Your name</h2>
+          <p class="when">How you appear in the header. Only you can change it.</p>
+        </div>
+        <button type="button" class="close" data-close aria-label="Close">&times;</button>
+      </div>
+      <form class="signup" data-form="rename">
+        <div class="field">
+          <label for="rename-name">Name</label>
+          <input id="rename-name" name="name" maxlength="80" value="${esc(current)}"
+                 placeholder="${esc(state.viewer?.email ?? '')}" data-autofocus required />
+        </div>
+        <p class="error" data-error hidden></p>
+        <div class="form-actions">
+          <button type="submit" class="btn primary">Save</button>
           <button type="button" class="btn ghost" data-close>Cancel</button>
         </div>
       </form>`;
@@ -812,6 +838,16 @@ export function startApp(data, { onError } = {}) {
     toast(`Signed in as ${viewer.name || viewer.email}.`);
   }
 
+  async function submitRenameForm(form) {
+    const name = String(new FormData(form).get('name') ?? '').trim();
+    if (!name) throw new Error('Enter a name.');
+    state.viewer = await data.setName(name);
+    closeModal();
+    render();
+    renderIntro();
+    toast('Name updated.');
+  }
+
   async function copyLink(url, what) {
     try {
       await navigator.clipboard.writeText(url);
@@ -849,6 +885,8 @@ export function startApp(data, { onError } = {}) {
         await copyLink(location.origin + location.pathname, 'Calendar link');
       } else if (target.id === 'signin-btn') {
         openModal({ type: 'login' });
+      } else if (target.id === 'who') {
+        openModal({ type: 'rename' });
       } else if (target.id === 'signout-btn') {
         state.viewer = await data.signOut();
         closeModal();
@@ -948,6 +986,7 @@ export function startApp(data, { onError } = {}) {
     }
     try {
       if (form.dataset.form === 'login') await submitLoginForm(form);
+      else if (form.dataset.form === 'rename') await submitRenameForm(form);
       else if (form.dataset.form === 'event') await submitEventForm(form);
       else await submitSignupForm(form);
     } catch (err) {

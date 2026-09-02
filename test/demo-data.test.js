@@ -17,6 +17,17 @@ async function firstEvent() {
 }
 
 describe('demo data source', () => {
+  it('lets an organizer set their own display name', async () => {
+    await data.signIn('someone@example.com', 'anything');
+    const viewer = await data.setName('Kandler Baker');
+    assert.equal(viewer.name, 'Kandler Baker');
+    assert.equal(data.viewer().name, 'Kandler Baker');
+  });
+
+  it('has no display name to set until you are an organizer', async () => {
+    await assert.rejects(() => data.setName('Nobody'), /organizers/i);
+  });
+
   it('starts as a visitor, not an organizer', () => {
     assert.equal(data.viewer().isOrganizer, false);
   });
