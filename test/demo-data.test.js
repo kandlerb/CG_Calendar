@@ -41,22 +41,37 @@ describe('demo data source', () => {
     );
   });
 
-  it('refuses a full food slot but not one with no limit', async () => {
+  it('takes more sign-ups than a slot asked for, because the number is a minimum', async () => {
     const event = await firstEvent();
     const main = event.foodSlots.find((s) => s.label === 'Main dish');
-    const sides = event.foodSlots.find((s) => s.label === 'Side dish');
+    assert.equal(main.needed, 2, 'the seeded main dish asks for two');
 
-    await data.addSignup({ eventId: event.id, slotId: main.id, kind: 'food', name: 'Anna', item: 'Lasagna' });
-    await assert.rejects(
-      () => data.addSignup({ eventId: event.id, slotId: main.id, kind: 'food', name: 'Bob', item: 'Chili' }),
-      /already covered/,
-    );
-
-    for (const who of ['Bob', 'Cleo', 'Dev']) {
-      await data.addSignup({ eventId: event.id, slotId: sides.id, kind: 'food', name: who, item: 'Something' });
+    for (const who of ['Anna', 'Bob', 'Cleo']) {
+      await data.addSignup({ eventId: event.id, slotId: main.id, kind: 'food', name: who, item: `${who}'s dish` });
     }
     const after = await firstEvent();
-    assert.equal(after.signups.filter((s) => s.slotId === sides.id).length, 4);
+    assert.equal(after.signups.filter((s) => s.slotId === main.id).length, 3);
+  });
+
+  it('keeps what each person said they are bringing', async () => {
+    const event = await firstEvent();
+    const main = event.foodSlots.find((s) => s.label === 'Main dish');
+    await data.addSignup({ eventId: event.id, slotId: main.id, kind: 'food', name: 'Anna', item: 'Lasagna' });
+    await data.addSignup({ eventId: event.id, slotId: main.id, kind: 'food', name: 'Bob', item: 'Chili' });
+
+    const after = await firstEvent();
+    assert.deepEqual(
+      after.signups.filter((s) => s.slotId === main.id).map((s) => `${s.name}: ${s.item}`),
+      ['Anna: Lasagna', 'Bob: Chili'],
+    );
+  });
+
+  it('still refuses a slot that is not on the event', async () => {
+    const event = await firstEvent();
+    await assert.rejects(
+      () => data.addSignup({ eventId: event.id, slotId: 'not-a-slot', kind: 'food', name: 'Anna', item: 'X' }),
+      /no longer on this event/,
+    );
   });
 
   it('keeps a sign-up when its slot is removed', async () => {
@@ -77,7 +92,7 @@ describe('demo data source', () => {
     await data.signIn('demo@example.com', 'anything');
     const id = await data.saveEvent(
       { title: 'Potluck', date: '2026-12-05', startTime: '17:00', endTime: '', needsHost: true, hostLimit: 1, allowOtherFood: true, description: '', location: '' },
-      [{ label: 'Main dish', capacity: 1 }, { label: 'Dessert', capacity: 2 }],
+      [{ label: 'Main dish', needed: 1 }, { label: 'Dessert', needed: 2 }],
     );
     const created = (await data.loadEvents()).find((e) => e.id === id);
     assert.equal(created.title, 'Potluck');
