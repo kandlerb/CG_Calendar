@@ -127,26 +127,25 @@ export function startApp(data, { onError } = {}) {
     const organizer = Boolean(state.viewer?.isOrganizer);
     el.intro.innerHTML = `
       <div class="intro-head">
-        <h2>New here? Here's the whole thing.</h2>
-        <button type="button" class="close" data-dismiss-intro aria-label="Hide this explanation">&times;</button>
+        <h2>How to use this calendar</h2>
+        <button type="button" class="close" data-dismiss-intro aria-label="Hide these instructions">&times;</button>
       </div>
       <ol class="intro-steps">
-        <li><strong>Find the event.</strong> Browse the month, or switch to <strong>Upcoming</strong> for a plain
-          list of what's next.</li>
-        <li><strong>Open it.</strong> Tap an event to see when and where it is, who is hosting, and which food
-          is still missing.</li>
-        <li><strong>Add your name.</strong> Offer to host, or claim a food slot and say what you'll bring.
-          No account, no password — just your name.</li>
+        <li><strong>Find the event.</strong> Use <strong>Month</strong> for the grid or <strong>Upcoming</strong>
+          for a list.</li>
+        <li><strong>Open the event.</strong> It shows the time, the location, the host, and which food slots
+          are unfilled.</li>
+        <li><strong>Sign up.</strong> Take the host slot, or take a food slot and enter what you will bring.
+          No account is required.</li>
       </ol>
       <p class="hint">
-        Changed your mind? Open the event again and cancel your sign-up. This browser remembers which sign-ups
-        are yours, so keep using the same one.
+        To change or remove a sign-up, reopen the event. Sign-ups are identified by this browser, not by an
+        account, so use the same browser each time.
       </p>
       ${
         organizer
-          ? `<p class="hint organizer-hint"><strong>You're signed in as an organizer.</strong> Use
-             <strong>+ New event</strong> to post one, and <strong>Edit event</strong> inside any event to change
-             its date, host or food slots.</p>`
+          ? `<p class="hint organizer-hint"><strong>Organizer controls.</strong> <strong>+ New event</strong>
+             creates an event. <strong>Edit event</strong> changes its date, host count and food slots.</p>`
           : ''
       }`;
     el.intro.hidden = remembered.read(INTRO_KEY) === '1';
@@ -218,11 +217,11 @@ export function startApp(data, { onError } = {}) {
     const soonest = nextEvent(state.events, todayKey);
     const organizerHint = state.viewer?.isOrganizer
       ? ' Use <strong>+ New event</strong> to add one.'
-      : ' An organizer adds them — check back soon.';
+      : ' Only an organizer can add them.';
 
     if (!state.events.length) {
       el.viewNote.className = 'view-note';
-      el.viewNote.innerHTML = `Nothing is on the calendar yet.${organizerHint}`;
+      el.viewNote.innerHTML = `No events on the calendar.${organizerHint}`;
       el.viewNote.hidden = false;
       return;
     }
@@ -241,9 +240,9 @@ export function startApp(data, { onError } = {}) {
     const month = state.cursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
     el.viewNote.className = 'view-note';
     el.viewNote.innerHTML = soonest
-      ? `No events in ${esc(month)}. The next one is <strong>${esc(formatShortDate(soonest.date))}</strong>.
-         <button type="button" class="btn link" data-goto-event="${esc(soonest.id)}">Take me there</button>`
-      : `No events in ${esc(month)}, and nothing coming up.${organizerHint}`;
+      ? `No events in ${esc(month)}. Next event: <strong>${esc(formatShortDate(soonest.date))}</strong>.
+         <button type="button" class="btn link" data-goto-event="${esc(soonest.id)}">Go to that month</button>`
+      : `No events in ${esc(month)} and none upcoming.${organizerHint}`;
     el.viewNote.hidden = false;
   }
 
@@ -308,8 +307,8 @@ export function startApp(data, { onError } = {}) {
         <strong>No upcoming events.</strong><br />
         ${
           state.viewer?.isOrganizer
-            ? 'Use “+ New event” to add the first one.'
-            : 'Nothing has been posted yet — an organizer will add events here.'
+            ? 'Use “+ New event” to add one.'
+            : 'Only an organizer can add them.'
         }
       </p>`;
       return;
@@ -416,7 +415,7 @@ export function startApp(data, { onError } = {}) {
       <div class="modal-head">
         <div>
           <h2 id="modal-title">Organizer sign in</h2>
-          <p class="when">Only organizers need this. To sign up for an event, just close this and tap the event.</p>
+          <p class="when">Required for organizers only. Signing up for an event does not need an account.</p>
         </div>
         <button type="button" class="close" data-close aria-label="Close">&times;</button>
       </div>
@@ -476,7 +475,7 @@ export function startApp(data, { onError } = {}) {
           signup.canManage
             ? `<button type="button" class="btn link danger" data-cancel-signup="${esc(
                 signup.id,
-              )}" data-signup-name="${esc(signup.name)}">${signup.isMine ? 'Cancel mine' : 'Remove'}</button>`
+              )}" data-signup-name="${esc(signup.name)}">Remove</button>`
             : ''
         }
       </div>
@@ -487,10 +486,10 @@ export function startApp(data, { onError } = {}) {
     return `<form class="signup boxed" data-form="signup" data-kind="${esc(kind)}" data-slot="${esc(slotId)}">
       <p class="form-title">${
         kind === 'host'
-          ? 'Offer to host this event'
+          ? 'Sign up to host'
           : slotLabel
-            ? `You're claiming <strong>${esc(slotLabel)}</strong>`
-            : "Bring something that isn't listed"
+            ? `Taking the slot <strong>${esc(slotLabel)}</strong>`
+            : 'Food outside the listed slots'
       }</p>
       <div class="row">
         <div class="field">
@@ -505,7 +504,7 @@ export function startApp(data, { onError } = {}) {
       ${
         needsItem
           ? `<div class="field">
-              <label for="su-item">What will you bring?</label>
+              <label for="su-item">What you will bring</label>
               <input id="su-item" name="item" placeholder="e.g. chicken enchiladas for 12" required />
             </div>`
           : ''
@@ -516,11 +515,11 @@ export function startApp(data, { onError } = {}) {
           kind === 'host' ? 'Address, parking notes…' : 'Gluten free, needs oven space…',
         )}" />
       </div>
-      <p class="hint">Everyone with the link sees your name and note. Nobody is emailed.</p>
+      <p class="hint">Your name and note are visible to anyone with the link. No email is sent.</p>
       <p class="error" data-error hidden></p>
       <div class="form-actions">
-        <button type="submit" class="btn primary">${kind === 'host' ? "I'll host" : "I'll bring this"}</button>
-        <button type="button" class="btn ghost" data-cancel-form>Never mind</button>
+        <button type="submit" class="btn primary">${kind === 'host' ? 'Sign up to host' : 'Add sign-up'}</button>
+        <button type="button" class="btn ghost" data-cancel-form>Cancel</button>
       </div>
     </form>`;
   }
@@ -532,13 +531,13 @@ export function startApp(data, { onError } = {}) {
     return `<div class="section">
       <h3>Host <span class="section-note">${
         spotsLeft > 0
-          ? esc(spotsLeft === 1 ? 'nobody yet' : `${spotsLeft} more needed`)
-          : 'covered'
+          ? esc(spotsLeft === 1 ? 'unfilled' : `${spotsLeft} more needed`)
+          : 'filled'
       }</span></h3>
       ${
         event.hosts.length
           ? event.hosts.map((h) => signupLine(h)).join('')
-          : '<p class="hint">The host provides the place. Nobody has offered yet.</p>'
+          : '<p class="hint">The host provides the location. No one has signed up.</p>'
       }
       ${
         spotsLeft > 0 && !formOpen
@@ -552,9 +551,9 @@ export function startApp(data, { onError } = {}) {
   }
 
   function slotStatus(slot) {
-    if (slot.unlimited) return { text: `${slot.taken} signed up — anyone can add more`, tone: 'open' };
-    if (!slot.hasRoom) return { text: 'Covered', tone: 'done' };
-    return { text: `${slot.taken} of ${slot.capacity} claimed`, tone: 'open' };
+    if (slot.unlimited) return { text: `${slot.taken} signed up. No limit.`, tone: 'open' };
+    if (!slot.hasRoom) return { text: 'Filled', tone: 'done' };
+    return { text: `${slot.taken} of ${slot.capacity} taken`, tone: 'open' };
   }
 
   function foodSectionHtml(event, modal) {
@@ -574,7 +573,7 @@ export function startApp(data, { onError } = {}) {
                 slot.hasRoom && !openForm
                   ? `<button type="button" class="btn" data-open-form="food" data-slot="${esc(
                       slot.id,
-                    )}" data-slot-label="${esc(slot.label)}">I'll bring this</button>`
+                    )}" data-slot-label="${esc(slot.label)}">Take this slot</button>`
                   : ''
               }
             </div>
@@ -590,17 +589,17 @@ export function startApp(data, { onError } = {}) {
       <h3>Food</h3>
       ${
         event.foodSlots.length
-          ? `<p class="hint">Pick a slot below and say what you'll bring. A slot with a limit closes once it fills.</p>${slots}`
-          : '<p class="hint">No set slots for this one — bring whatever you like.</p>'
+          ? `<p class="hint">Take a slot and enter what you will bring. A slot with a limit closes when it fills.</p>${slots}`
+          : '<p class="hint">No slots are set for this event. Bring anything.</p>'
       }
       ${
         event.otherFood.length
-          ? `<p class="hint">Also coming:</p>${event.otherFood.map((p) => signupLine(p)).join('')}`
+          ? `<p class="hint">Other food:</p>${event.otherFood.map((p) => signupLine(p)).join('')}`
           : ''
       }
       ${
         event.allowOtherFood && !otherFormOpen
-          ? '<button type="button" class="btn" data-open-form="food">Bring something else</button>'
+          ? '<button type="button" class="btn" data-open-form="food">Add other food</button>'
           : ''
       }
       ${otherFormOpen ? signupFormHtml({ kind: 'food', needsItem: true }) : ''}
@@ -622,8 +621,8 @@ export function startApp(data, { onError } = {}) {
       ${event.description ? `<p class="description">${esc(event.description)}</p>` : ''}
       ${
         event.mine.length
-          ? `<p class="yours">You're on this event: ${esc(
-              event.mine.map((s) => (s.kind === 'host' ? 'hosting' : s.item || 'bringing food')).join(', '),
+          ? `<p class="yours">Your sign-ups: ${esc(
+              event.mine.map((s) => (s.kind === 'host' ? 'host' : s.item || 'food')).join(', '),
             )}.</p>`
           : ''
       }
@@ -666,7 +665,7 @@ export function startApp(data, { onError } = {}) {
       <div class="modal-head">
         <div>
           <h2 id="modal-title">${editing ? 'Edit event' : 'New event'}</h2>
-          <p class="when">Everyone with the link can see this and sign up for it.</p>
+          <p class="when">Visible to anyone with the link.</p>
         </div>
         <button type="button" class="close" data-close aria-label="Close">&times;</button>
       </div>
@@ -687,8 +686,8 @@ export function startApp(data, { onError } = {}) {
               )}" required />
             </div>
             <div class="field">
-              <label for="ev-location">Where <span class="help">(optional)</span></label>
-              <input id="ev-location" name="location" placeholder="Leave blank until a host signs up" value="${esc(
+              <label for="ev-location">Location <span class="help">(optional)</span></label>
+              <input id="ev-location" name="location" placeholder="Blank until a host signs up" value="${esc(
                 event?.location ?? '',
               )}" />
             </div>
@@ -705,7 +704,7 @@ export function startApp(data, { onError } = {}) {
           </div>
           <div class="field">
             <label for="ev-description">Details <span class="help">(optional)</span></label>
-            <textarea id="ev-description" name="description" placeholder="What you're studying, whether kids are welcome, anything else">${esc(
+            <textarea id="ev-description" name="description" placeholder="Topic, whether kids are welcome, other details">${esc(
               event?.description ?? '',
             )}</textarea>
           </div>
@@ -717,7 +716,7 @@ export function startApp(data, { onError } = {}) {
             <input id="ev-needs-host" name="needsHost" type="checkbox" data-toggles="host-limit" ${
               needsHost ? 'checked' : ''
             } />
-            <label for="ev-needs-host">Someone needs to offer their place</label>
+            <label for="ev-needs-host">This event needs a host</label>
           </div>
           <div class="field indented" data-toggle-target="host-limit" ${needsHost ? '' : 'hidden'}>
             <label for="ev-host-limit">How many hosts</label>
@@ -730,8 +729,8 @@ export function startApp(data, { onError } = {}) {
         <fieldset>
           <legend>Food</legend>
           <p class="hint">
-            People pick one of these and say what they're bringing. The number is how many people may claim
-            it — <strong>set it to 0 for no limit</strong>.
+            People take one slot and enter what they will bring. The number is how many people may take the
+            slot. <strong>Set it to 0 for no limit.</strong>
           </p>
           <div class="slot-editor-head"><span>What to bring</span><span>How many</span><span></span></div>
           <div class="slot-editor" data-slot-editor>${slots.map((s) => slotEditorRow(s)).join('')}</div>
@@ -748,7 +747,7 @@ export function startApp(data, { onError } = {}) {
             <input id="ev-other-food" name="allowOtherFood" type="checkbox" ${
               event ? (event.allowOtherFood ? 'checked' : '') : 'checked'
             } />
-            <label for="ev-other-food">Let people bring something outside these slots</label>
+            <label for="ev-other-food">Allow food outside these slots</label>
           </div>
         </fieldset>
 
@@ -803,7 +802,7 @@ export function startApp(data, { onError } = {}) {
     await reload();
     render();
     openModal({ type: 'event', eventId: id, form: null });
-    toast(form.dataset.eventId ? 'Event updated.' : 'Event created — send the group the link.');
+    toast(form.dataset.eventId ? 'Event updated.' : 'Event created.');
   }
 
   async function submitSignupForm(form) {
@@ -821,11 +820,7 @@ export function startApp(data, { onError } = {}) {
     });
     state.modal.form = null;
     await refresh();
-    toast(
-      form.dataset.kind === 'host'
-        ? "You're down to host. Everyone can see it now."
-        : 'Thanks — added to the list.',
-    );
+    toast(form.dataset.kind === 'host' ? 'Signed up to host.' : 'Sign-up added.');
   }
 
   async function submitLoginForm(form) {
@@ -851,7 +846,7 @@ export function startApp(data, { onError } = {}) {
   async function copyLink(url, what) {
     try {
       await navigator.clipboard.writeText(url);
-      toast(`${what} copied — paste it to your group.`);
+      toast(`${what} copied.`);
     } catch {
       window.prompt('Copy this link:', url);
     }
@@ -925,7 +920,7 @@ export function startApp(data, { onError } = {}) {
         if (
           !window.confirm(
             `Delete “${event?.title ?? 'this event'}”?` +
-              (people ? ` ${people} sign-up${people === 1 ? '' : 's'} will go with it.` : '') +
+              (people ? ` ${people} sign-up${people === 1 ? '' : 's'} will be deleted with it.` : '') +
               ' This cannot be undone.',
           )
         ) {
