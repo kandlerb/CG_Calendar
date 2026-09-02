@@ -258,13 +258,18 @@ export function startApp(data, { onError } = {}) {
 
   function chipHtml(event) {
     const wanted = event.needsHost && event.hostSpotsLeft > 0;
-    const meta = [event.startTime ? formatTime(event.startTime) : 'Time TBD'];
-    if (wanted) meta.push('needs a host');
+    const time = event.startTime ? formatTime(event.startTime) : 'TBD';
+    // A cell is only so wide, so the row is one line and the detail moves into
+    // the tooltip and the dot colour.
+    const tip = [`${event.title}, ${time}`, wanted ? 'Needs a host.' : '']
+      .filter(Boolean)
+      .join(' ');
     return `<button type="button" class="chip${wanted ? ' needs-host' : ''}${
       event.mine.length ? ' mine' : ''
-    }" data-event="${esc(event.id)}">
-      <strong>${esc(event.title)}</strong>
-      <span class="chip-meta">${esc(meta.join(' · '))}</span>
+    }" data-event="${esc(event.id)}" title="${esc(tip)}">
+      <span class="dot" aria-hidden="true"></span>
+      <span class="chip-time">${esc(time)}</span>
+      <span class="chip-title">${esc(event.title)}</span>
     </button>`;
   }
 
@@ -275,6 +280,7 @@ export function startApp(data, { onError } = {}) {
       (d) => `<div role="columnheader"><abbr title="${d.full}">${d.short}</abbr></div>`,
     ).join('')}</div>`;
 
+    const canAdd = Boolean(state.viewer?.isOrganizer);
     for (const week of monthGrid(state.cursor)) {
       html += '<div class="weeks-row">';
       for (const cell of week) {
@@ -291,6 +297,13 @@ export function startApp(data, { onError } = {}) {
           ${
             hidden > 0
               ? `<button type="button" class="more" data-expand-day="${esc(cell.key)}">+${hidden} more</button>`
+              : ''
+          }
+          ${
+            canAdd
+              ? `<button type="button" class="day-add" data-new-on="${esc(cell.key)}"
+                   aria-label="Add an event on ${esc(formatShortDate(cell.key))}"><span
+                   aria-hidden="true">+</span></button>`
               : ''
           }
         </div>`;
@@ -374,7 +387,8 @@ export function startApp(data, { onError } = {}) {
     let html = '';
     if (modal.type === 'login') html = loginModalHtml();
     else if (modal.type === 'rename') html = renameModalHtml();
-    else if (modal.type === 'eventForm') html = eventFormHtml(modal.eventId ? eventById(modal.eventId) : null);
+    else if (modal.type === 'eventForm')
+      html = eventFormHtml(modal.eventId ? eventById(modal.eventId) : null, modal.date);
     else {
       const event = eventById(modal.eventId);
       if (!event) {
@@ -657,7 +671,7 @@ export function startApp(data, { onError } = {}) {
     </div>`;
   }
 
-  function eventFormHtml(event) {
+  function eventFormHtml(event, presetDate) {
     const editing = Boolean(event);
     const slots = editing && event.foodSlots.length ? event.foodSlots : [{ label: 'Main dish', capacity: 1, id: '' }];
     const needsHost = event ? event.needsHost : true;
@@ -682,7 +696,7 @@ export function startApp(data, { onError } = {}) {
             <div class="field">
               <label for="ev-date">Date</label>
               <input id="ev-date" name="date" type="date" value="${esc(
-                event?.date ?? isoDate(new Date()),
+                event?.date ?? presetDate ?? isoDate(new Date()),
               )}" required />
             </div>
             <div class="field">
@@ -899,6 +913,8 @@ export function startApp(data, { onError } = {}) {
       } else if (target.dataset.expandDay) {
         state.expandedDay = target.dataset.expandDay;
         render();
+      } else if (target.dataset.newOn) {
+        openModal({ type: 'eventForm', eventId: null, date: target.dataset.newOn });
       } else if (target.dataset.event) {
         history.replaceState(null, '', `#event=${target.dataset.event}`);
         openModal({ type: 'event', eventId: target.dataset.event, form: null });
