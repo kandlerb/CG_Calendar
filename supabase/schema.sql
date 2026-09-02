@@ -8,7 +8,8 @@
 --   * organizers                   — the only people who may add or change events
 --   * row level security           — those rules, enforced by the database, so
 --                                    they hold no matter what a browser sends
---   * a capacity trigger           — two people cannot claim the same food slot
+--   * a sign-up trigger            — a slot belongs to its event, and only as
+--                                    many hosts sign up as the event asked for
 
 -- ---------------------------------------------------------------------------
 -- Tables
@@ -45,10 +46,31 @@ create table if not exists public.food_slots (
   id       uuid primary key default gen_random_uuid(),
   event_id uuid not null references public.events (id) on delete cascade,
   label    text not null check (char_length(label) between 1 and 60),
-  -- 0 means no limit: as many people as want to may bring this.
-  capacity integer not null default 1 check (capacity >= 0),
+  -- How many people the organizer wants for this slot. A minimum, not a cap:
+  -- more may always sign up. 0 means no particular number is wanted.
+  needed   integer not null default 1,
   position integer not null default 0
 );
+
+-- Slots used to be capacities that closed when full. A project created before
+-- that changed still has the old column; rename it rather than lose the data.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'food_slots' and column_name = 'capacity'
+  ) and not exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'food_slots' and column_name = 'needed'
+  ) then
+    alter table public.food_slots rename column capacity to needed;
+  end if;
+end $$;
+
+-- Named explicitly, because renaming a column does not rename its constraint.
+alter table public.food_slots drop constraint if exists food_slots_capacity_check;
+alter table public.food_slots drop constraint if exists food_slots_needed_check;
+alter table public.food_slots add constraint food_slots_needed_check check (needed >= 0);
 
 create index if not exists food_slots_event_idx on public.food_slots (event_id);
 
@@ -169,10 +191,17 @@ create policy signups_delete_own on public.signups
   for delete using (created_by = auth.uid() or public.is_organizer());
 
 -- ---------------------------------------------------------------------------
--- Capacity: the database decides whether a spot is still open
+-- Sign-up rules the database enforces
 -- ---------------------------------------------------------------------------
+--
+-- A food slot states how many people are wanted, not how many are allowed, so
+-- nothing here turns a food sign-up away for being late. A host is different:
+-- an event has one house, so host_limit is a real cap.
 
-create or replace function public.enforce_signup_capacity()
+drop trigger if exists signups_capacity on public.signups;
+drop function if exists public.enforce_signup_capacity();
+
+create or replace function public.enforce_signup_rules()
 returns trigger
 language plpgsql
 security definer
@@ -213,15 +242,8 @@ begin
       if not found then
         raise exception 'That food slot is no longer on this event.';
       end if;
-      -- capacity 0 means no limit
-      if v_slot.capacity > 0 then
-        select count(*) into v_taken
-          from public.signups
-         where slot_id = new.slot_id and id is distinct from new.id;
-        if v_taken >= v_slot.capacity then
-          raise exception '"%" is already covered.', v_slot.label;
-        end if;
-      end if;
+      -- Reaching the number wanted does not close the slot; extra food is
+      -- always welcome, and the count on screen simply passes the minimum.
     end if;
   end if;
 
@@ -231,12 +253,12 @@ $$;
 
 -- Nothing calls this by hand; the trigger machinery checks the privilege when
 -- the trigger is created, not when it fires. Revoking keeps it off the REST API.
-revoke all on function public.enforce_signup_capacity() from public, anon, authenticated;
+revoke all on function public.enforce_signup_rules() from public, anon, authenticated;
 
-drop trigger if exists signups_capacity on public.signups;
-create trigger signups_capacity
+drop trigger if exists signups_rules on public.signups;
+create trigger signups_rules
   before insert on public.signups
-  for each row execute function public.enforce_signup_capacity();
+  for each row execute function public.enforce_signup_rules();
 
 -- ---------------------------------------------------------------------------
 -- Saving an event and its food slots together
@@ -302,13 +324,13 @@ begin
   loop
     v_slot_id := nullif(v_slot->>'id', '')::uuid;
     if v_slot_id is null then
-      insert into public.food_slots (event_id, label, capacity, position)
-      values (v_id, v_slot->>'label', coalesce((v_slot->>'capacity')::integer, 1), v_position)
+      insert into public.food_slots (event_id, label, needed, position)
+      values (v_id, v_slot->>'label', coalesce((v_slot->>'needed')::integer, 1), v_position)
       returning id into v_slot_id;
     else
       update public.food_slots set
         label    = v_slot->>'label',
-        capacity = coalesce((v_slot->>'capacity')::integer, 1),
+        needed   = coalesce((v_slot->>'needed')::integer, 1),
         position = v_position
       where id = v_slot_id and event_id = v_id;
     end if;

@@ -13,7 +13,15 @@ import {
   parseISODate,
   startOfMonth,
 } from './lib/dates.js';
-import { eventBadges, eventSummary, groupByDate, nextEvent, shapeEvents, upcoming } from './lib/model.js';
+import {
+  eventBadges,
+  eventSummary,
+  foodStillNeeded,
+  groupByDate,
+  nextEvent,
+  shapeEvents,
+  upcoming,
+} from './lib/model.js';
 
 const WEEKDAYS = [
   { short: 'Sun', full: 'Sunday' },
@@ -135,8 +143,8 @@ export function startApp(data, { onError } = {}) {
           for a list.</li>
         <li><strong>Open the event.</strong> It shows the time, the location, the host, and which food slots
           are unfilled.</li>
-        <li><strong>Sign up.</strong> Take the host slot, or take a food slot and enter what you will bring.
-          No account is required.</li>
+        <li><strong>Sign up.</strong> Take the host slot, or pick a food slot and enter what you are
+          bringing. No account is required.</li>
       </ol>
       <p class="hint">
         To change or remove a sign-up, reopen the event. Sign-ups are identified by this browser, not by an
@@ -258,13 +266,18 @@ export function startApp(data, { onError } = {}) {
 
   function chipHtml(event) {
     const wanted = event.needsHost && event.hostSpotsLeft > 0;
-    const meta = [event.startTime ? formatTime(event.startTime) : 'Time TBD'];
-    if (wanted) meta.push('needs a host');
+    const time = event.startTime ? formatTime(event.startTime) : 'TBD';
+    // A cell is only so wide, so the row is one line and the detail moves into
+    // the tooltip and the dot colour.
+    const tip = [`${event.title}, ${time}`, wanted ? 'Needs a host.' : '']
+      .filter(Boolean)
+      .join(' ');
     return `<button type="button" class="chip${wanted ? ' needs-host' : ''}${
       event.mine.length ? ' mine' : ''
-    }" data-event="${esc(event.id)}">
-      <strong>${esc(event.title)}</strong>
-      <span class="chip-meta">${esc(meta.join(' · '))}</span>
+    }" data-event="${esc(event.id)}" title="${esc(tip)}">
+      <span class="dot" aria-hidden="true"></span>
+      <span class="chip-time">${esc(time)}</span>
+      <span class="chip-title">${esc(event.title)}</span>
     </button>`;
   }
 
@@ -275,6 +288,7 @@ export function startApp(data, { onError } = {}) {
       (d) => `<div role="columnheader"><abbr title="${d.full}">${d.short}</abbr></div>`,
     ).join('')}</div>`;
 
+    const canAdd = Boolean(state.viewer?.isOrganizer);
     for (const week of monthGrid(state.cursor)) {
       html += '<div class="weeks-row">';
       for (const cell of week) {
@@ -291,6 +305,13 @@ export function startApp(data, { onError } = {}) {
           ${
             hidden > 0
               ? `<button type="button" class="more" data-expand-day="${esc(cell.key)}">+${hidden} more</button>`
+              : ''
+          }
+          ${
+            canAdd
+              ? `<button type="button" class="day-add" data-new-on="${esc(cell.key)}"
+                   aria-label="Add an event on ${esc(formatShortDate(cell.key))}"><span
+                   aria-hidden="true">+</span></button>`
               : ''
           }
         </div>`;
@@ -374,7 +395,8 @@ export function startApp(data, { onError } = {}) {
     let html = '';
     if (modal.type === 'login') html = loginModalHtml();
     else if (modal.type === 'rename') html = renameModalHtml();
-    else if (modal.type === 'eventForm') html = eventFormHtml(modal.eventId ? eventById(modal.eventId) : null);
+    else if (modal.type === 'eventForm')
+      html = eventFormHtml(modal.eventId ? eventById(modal.eventId) : null, modal.date);
     else {
       const event = eventById(modal.eventId);
       if (!event) {
@@ -488,7 +510,7 @@ export function startApp(data, { onError } = {}) {
         kind === 'host'
           ? 'Sign up to host'
           : slotLabel
-            ? `Taking the slot <strong>${esc(slotLabel)}</strong>`
+            ? `Signing up for <strong>${esc(slotLabel)}</strong>`
             : 'Food outside the listed slots'
       }</p>
       <div class="row">
@@ -551,9 +573,12 @@ export function startApp(data, { onError } = {}) {
   }
 
   function slotStatus(slot) {
-    if (slot.unlimited) return { text: `${slot.taken} signed up. No limit.`, tone: 'open' };
-    if (!slot.hasRoom) return { text: 'Filled', tone: 'done' };
-    return { text: `${slot.taken} of ${slot.capacity} taken`, tone: 'open' };
+    if (slot.noMinimum) return { text: `${slot.taken} signed up. No number set.`, tone: 'open' };
+    // Past the number asked for, "5 of 2" reads like a mistake; just say how
+    // many are coming.
+    if (slot.taken > slot.needed) return { text: `${slot.taken} signed up. Covered.`, tone: 'done' };
+    if (slot.met) return { text: `${slot.taken} of ${slot.needed}. Covered.`, tone: 'done' };
+    return { text: `${slot.taken} of ${slot.needed}. ${slot.stillNeeded} more needed.`, tone: 'open' };
   }
 
   function foodSectionHtml(event, modal) {
@@ -570,11 +595,12 @@ export function startApp(data, { onError } = {}) {
             </div>
             <div class="slot-actions">
               ${
-                slot.hasRoom && !openForm
-                  ? `<button type="button" class="btn" data-open-form="food" data-slot="${esc(
-                      slot.id,
-                    )}" data-slot-label="${esc(slot.label)}">Take this slot</button>`
-                  : ''
+                openForm
+                  ? ''
+                  : `<button type="button" class="btn${slot.met ? '' : ' primary'}" data-open-form="food"
+                       data-slot="${esc(slot.id)}" data-slot-label="${esc(
+                         slot.label,
+                       )}">Sign up</button>`
               }
             </div>
           </div>
@@ -586,10 +612,19 @@ export function startApp(data, { onError } = {}) {
 
     const otherFormOpen = form && !form.slotId;
     return `<div class="section">
-      <h3>Food</h3>
+      <h3>Food <span class="section-note">${
+        event.foodSlots.length
+          ? esc(
+              foodStillNeeded(event) > 0
+                ? `${foodStillNeeded(event)} more needed`
+                : 'every slot covered',
+            )
+          : ''
+      }</span></h3>
       ${
         event.foodSlots.length
-          ? `<p class="hint">Take a slot and enter what you will bring. A slot with a limit closes when it fills.</p>${slots}`
+          ? `<p class="hint">Sign up for a slot and enter what you are bringing. The number is how many
+               people the organizer wants; a slot never closes, so you can always add to one.</p>${slots}`
           : '<p class="hint">No slots are set for this event. Bring anything.</p>'
       }
       ${
@@ -644,22 +679,22 @@ export function startApp(data, { onError } = {}) {
       </div>`;
   }
 
-  function slotEditorRow(slot = { label: '', capacity: 1, id: '' }) {
+  function slotEditorRow(slot = { label: '', needed: 1, id: '' }) {
     return `<div class="slot-editor-row" data-slot-row>
       <input name="slot-label" placeholder="e.g. Main dish" aria-label="What people bring" value="${esc(
         slot.label,
       )}" />
-      <input name="slot-capacity" type="number" min="0" value="${esc(
-        Number.isInteger(slot.capacity) ? slot.capacity : 1,
-      )}" aria-label="How many people can bring this — 0 for no limit" />
+      <input name="slot-needed" type="number" min="0" value="${esc(
+        Number.isInteger(slot.needed) ? slot.needed : 1,
+      )}" aria-label="How many people are needed for this — 0 for no minimum" />
       <input type="hidden" name="slot-id" value="${esc(slot.id ?? '')}" />
       <button type="button" class="btn link danger" data-remove-slot aria-label="Remove this slot">Remove</button>
     </div>`;
   }
 
-  function eventFormHtml(event) {
+  function eventFormHtml(event, presetDate) {
     const editing = Boolean(event);
-    const slots = editing && event.foodSlots.length ? event.foodSlots : [{ label: 'Main dish', capacity: 1, id: '' }];
+    const slots = editing && event.foodSlots.length ? event.foodSlots : [{ label: 'Main dish', needed: 1, id: '' }];
     const needsHost = event ? event.needsHost : true;
     return `
       <div class="modal-head">
@@ -682,7 +717,7 @@ export function startApp(data, { onError } = {}) {
             <div class="field">
               <label for="ev-date">Date</label>
               <input id="ev-date" name="date" type="date" value="${esc(
-                event?.date ?? isoDate(new Date()),
+                event?.date ?? presetDate ?? isoDate(new Date()),
               )}" required />
             </div>
             <div class="field">
@@ -729,10 +764,11 @@ export function startApp(data, { onError } = {}) {
         <fieldset>
           <legend>Food</legend>
           <p class="hint">
-            People take one slot and enter what they will bring. The number is how many people may take the
-            slot. <strong>Set it to 0 for no limit.</strong>
+            People sign up for a slot and enter what they are bringing. The number is the
+            <strong>minimum you want</strong> — more people can always add to a slot, and it never closes.
+            Set it to 0 if any number will do.
           </p>
-          <div class="slot-editor-head"><span>What to bring</span><span>How many</span><span></span></div>
+          <div class="slot-editor-head"><span>What to bring</span><span>How many needed</span><span></span></div>
           <div class="slot-editor" data-slot-editor>${slots.map((s) => slotEditorRow(s)).join('')}</div>
           <div class="form-actions">
             <button type="button" class="btn" data-add-slot>+ Add slot</button>
@@ -766,7 +802,7 @@ export function startApp(data, { onError } = {}) {
       .map((row) => ({
         id: row.querySelector('[name="slot-id"]').value,
         label: row.querySelector('[name="slot-label"]').value.trim(),
-        capacity: Math.max(0, Number(row.querySelector('[name="slot-capacity"]').value) || 0),
+        needed: Math.max(0, Number(row.querySelector('[name="slot-needed"]').value) || 0),
       }))
       .filter((slot) => slot.label);
   }
@@ -899,6 +935,8 @@ export function startApp(data, { onError } = {}) {
       } else if (target.dataset.expandDay) {
         state.expandedDay = target.dataset.expandDay;
         render();
+      } else if (target.dataset.newOn) {
+        openModal({ type: 'eventForm', eventId: null, date: target.dataset.newOn });
       } else if (target.dataset.event) {
         history.replaceState(null, '', `#event=${target.dataset.event}`);
         openModal({ type: 'event', eventId: target.dataset.event, form: null });
@@ -952,7 +990,7 @@ export function startApp(data, { onError } = {}) {
         }
         const blank = existing.find((input) => !input.value.trim());
         if (blank) blank.value = target.dataset.preset;
-        else editor.insertAdjacentHTML('beforeend', slotEditorRow({ label: target.dataset.preset, capacity: 1, id: '' }));
+        else editor.insertAdjacentHTML('beforeend', slotEditorRow({ label: target.dataset.preset, needed: 1, id: '' }));
       } else if (target.hasAttribute('data-remove-slot')) {
         target.closest('[data-slot-row]').remove();
       }

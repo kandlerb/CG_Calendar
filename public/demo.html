@@ -11,47 +11,49 @@
   <body>
     <a class="skip-link" href="#main">Skip to the calendar</a>
     <header class="topbar">
-      <div class="brand">
-        <h1 id="app-name">Community Group Calendar</h1>
-        <p class="tagline">Demo. Nothing is saved; reloading resets the data.</p>
-      </div>
+      <h1 id="app-name">Community Group Calendar</h1>
       <div class="topbar-actions">
         <button type="button" id="help-btn" class="btn ghost" aria-controls="intro" aria-expanded="true">
           How to use
         </button>
         <button type="button" id="share-btn" class="btn ghost" title="Copy the link to this calendar">
-          Copy share link
+          Share link
         </button>
-        <button type="button" id="new-event-btn" class="btn primary" hidden>+ New event</button>
+        <span class="topbar-divider" aria-hidden="true"></span>
         <button type="button" id="who" class="who" hidden></button>
         <button type="button" id="signout-btn" class="btn ghost" hidden>Sign out</button>
-        <button type="button" id="signin-btn" class="btn link organizer-link">Organizer sign in</button>
+        <button type="button" id="signin-btn" class="btn ghost">Organizer sign in</button>
       </div>
     </header>
+    <p class="demo-banner">Demo. Nothing is saved; reloading resets the data.</p>
 
-    <main id="main">
-      <section id="intro" class="intro" aria-label="How this calendar works" hidden></section>
-
-      <section id="loading" class="loading" aria-live="polite">
-        <p class="sr-only">Loading the calendar…</p>
-        <div class="skeleton-bar"></div>
-        <div class="skeleton-grid" aria-hidden="true">
-          <span></span><span></span><span></span><span></span><span></span><span></span>
-        </div>
-      </section>
-
-      <div class="toolbar" hidden>
-        <div class="period-nav">
+    <div class="toolbar" hidden>
+      <div class="period-nav">
+        <button type="button" id="today" class="btn">Today</button>
+        <span class="stepper">
           <button type="button" id="prev" class="btn icon" aria-label="Previous month">&#8249;</button>
-          <h2 id="period">&nbsp;</h2>
           <button type="button" id="next" class="btn icon" aria-label="Next month">&#8250;</button>
-          <button type="button" id="today" class="btn ghost">Today</button>
-        </div>
+        </span>
+        <h2 id="period">&nbsp;</h2>
+      </div>
+      <div class="toolbar-right">
         <div class="view-toggle" role="group" aria-label="How to show the events">
           <button type="button" class="btn toggle" data-view="month">Month</button>
           <button type="button" class="btn toggle" data-view="list">Upcoming</button>
         </div>
+        <button type="button" id="new-event-btn" class="btn primary" hidden>+ New event</button>
       </div>
+    </div>
+
+    <main id="main">
+      <section id="intro" class="intro" aria-label="How to use this calendar" hidden></section>
+
+      <section id="loading" class="loading" aria-live="polite">
+        <p class="sr-only">Loading the calendar…</p>
+        <div class="skeleton-grid" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span><span></span>
+        </div>
+      </section>
 
       <p id="view-note" class="view-note" hidden></p>
 
@@ -69,7 +71,7 @@
         import('./lib/demo-data.js'),
         import('./app.js'),
       ]);
-      document.getElementById('app-name').textContent = 'Community Group Calendar (demo)';
+      document.getElementById('app-name').textContent = 'Community Group Calendar';
       document.title = 'Community Group Calendar — demo';
       startApp(createDemoData());
     </script>
