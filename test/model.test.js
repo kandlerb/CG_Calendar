@@ -208,7 +208,7 @@ describe('the one-line summary at the top of an event', () => {
       shapeEvent(event({ needsHost: false, signups: [signup({ id: 'f1', slotId: 'main' })] })),
     );
     assert.equal(summary.done, true);
-    assert.match(summary.text, /extra food is still welcome/);
+    assert.match(summary.text, /More food can still be added/);
   });
 
   it('says plainly that nothing is left when every slot has a limit and is full', () => {
@@ -218,7 +218,7 @@ describe('the one-line summary at the top of an event', () => {
       foodSlots: [{ id: 'main', label: 'Main dish', capacity: 1, position: 0 }],
       signups: [signup({ id: 'f1', slotId: 'main' })],
     });
-    assert.equal(eventSummary(shapeEvent(covered)).text, 'Everything is covered for this event.');
+    assert.equal(eventSummary(shapeEvent(covered)).text, 'All slots filled.');
   });
 });
 

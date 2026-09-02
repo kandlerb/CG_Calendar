@@ -77,9 +77,9 @@ export function eventSummary(event) {
 
   if (needs.length) return { done: false, text: `Still needed: ${joinWords(needs)}.` };
   if (event.foodSlots.some((slot) => slot.unlimited) || event.allowOtherFood) {
-    return { done: true, text: 'Everything is covered — extra food is still welcome.' };
+    return { done: true, text: 'All slots filled. More food can still be added.' };
   }
-  return { done: true, text: 'Everything is covered for this event.' };
+  return { done: true, text: 'All slots filled.' };
 }
 
 /** The short status labels shown on a chip or card. */
@@ -110,7 +110,7 @@ export function eventBadges(event) {
     badges.push({ text: `${people} bringing food`, warn: false });
   }
   if (event.mine?.length) {
-    badges.push({ text: "You're signed up", warn: false, mine: true });
+    badges.push({ text: 'You signed up', warn: false, mine: true });
   }
   return badges;
 }
