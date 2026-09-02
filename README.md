@@ -168,6 +168,23 @@ sign-up for them.
    a limit closes once it fills, so two people can't both claim the main dish —
    the database refuses the second one rather than silently overwriting.
 
+### What a first-time visitor sees
+
+The page opens with a short **How it works** panel: find the event, open it,
+add your name. Closing it is remembered, and the **How it works** button in
+the header brings it back.
+
+From there:
+
+- **Month** shows the whole month; **Upcoming** is a plain list of what's next,
+  which is what a phone opens on. Whichever you pick is remembered.
+- Every event opens to one line saying what it still needs — *"Still needed: a
+  host and 2 food slots"* — before any of the detail.
+- Sign-ups you made are marked **You**, so you can tell yours apart and cancel
+  them. That marker follows the browser, not an account.
+- A month with nothing in it says so, and offers to jump to the next event
+  rather than leaving you looking at empty squares.
+
 ## Day-to-day
 
 **Adding or removing an organizer** is the SQL in step 4, or
