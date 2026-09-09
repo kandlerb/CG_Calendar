@@ -170,6 +170,19 @@ describe('badges', () => {
     assert.equal(badgeText(hosted).includes('Hosted by Anna'), true);
   });
 
+  it('shows no host badge when the organizer has already arranged the host', () => {
+    const arranged = event({ needsHost: false, location: "The Smiths' home" });
+    assert.equal(badgeText(arranged).some((t) => /host/i.test(t)), false);
+  });
+
+  it('still credits a host who signed up before the organizer arranged one', () => {
+    const settled = event({
+      needsHost: false,
+      signups: [signup({ id: 'h1', kind: 'host', name: 'Anna', item: '' })],
+    });
+    assert.equal(badgeText(settled).includes('Hosted by Anna'), true);
+  });
+
   it('counts how many more sign-ups the slots are asking for', () => {
     assert.equal(badgeText(event()).includes('1 more food sign-up needed'), true);
   });

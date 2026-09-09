@@ -143,8 +143,8 @@ export function startApp(data, { onError } = {}) {
           for a list.</li>
         <li><strong>Open the event.</strong> It shows the time, the location, the host, and which food slots
           are unfilled.</li>
-        <li><strong>Sign up.</strong> Take the host slot, or pick a food slot and enter what you are
-          bringing. No account is required.</li>
+        <li><strong>Sign up.</strong> Take the host slot if the event still needs one, or pick a food
+          slot and enter what you are bringing. No account is required.</li>
       </ol>
       <p class="hint">
         To change or remove a sign-up, reopen the event. Sign-ups are identified by this browser, not by an
@@ -547,7 +547,7 @@ export function startApp(data, { onError } = {}) {
   }
 
   function hostSectionHtml(event, modal) {
-    if (!event.needsHost) return '';
+    if (!event.needsHost && !event.hosts.length) return '';
     const formOpen = modal.form?.kind === 'host';
     const spotsLeft = event.hostSpotsLeft;
     return `<div class="section">
@@ -721,17 +721,11 @@ export function startApp(data, { onError } = {}) {
               )}" required />
             </div>
             <div class="field">
-              <label for="ev-location">Location <span class="help">(optional)</span></label>
-              <input id="ev-location" name="location" placeholder="Blank until a host signs up" value="${esc(
-                event?.location ?? '',
-              )}" />
-            </div>
-          </div>
-          <div class="row">
-            <div class="field">
               <label for="ev-start">Start time</label>
               <input id="ev-start" name="startTime" type="time" value="${esc(event?.startTime ?? '18:00')}" />
             </div>
+          </div>
+          <div class="row">
             <div class="field">
               <label for="ev-end">End time <span class="help">(optional)</span></label>
               <input id="ev-end" name="endTime" type="time" value="${esc(event?.endTime ?? '')}" />
@@ -747,16 +741,33 @@ export function startApp(data, { onError } = {}) {
 
         <fieldset>
           <legend>Host</legend>
+          <p class="hint">
+            Either someone still needs to volunteer, or you already know where it is. Picking a
+            location means nobody is asked to host.
+          </p>
           <div class="checkbox">
-            <input id="ev-needs-host" name="needsHost" type="checkbox" data-toggles="host-limit" ${
+            <input id="ev-host-needed" name="hosting" type="radio" value="needed" ${
               needsHost ? 'checked' : ''
             } />
-            <label for="ev-needs-host">This event needs a host</label>
+            <label for="ev-host-needed">Still looking for a host — people can sign up to host it</label>
           </div>
-          <div class="field indented" data-toggle-target="host-limit" ${needsHost ? '' : 'hidden'}>
+          <div class="field indented" data-show-when="hosting=needed" ${needsHost ? '' : 'hidden'}>
             <label for="ev-host-limit">How many hosts</label>
             <input id="ev-host-limit" name="hostLimit" type="number" min="1" value="${esc(
               event?.hostLimit || 1,
+            )}" />
+            <span class="help">The host adds the address in their sign-up note.</span>
+          </div>
+          <div class="checkbox">
+            <input id="ev-host-set" name="hosting" type="radio" value="set" ${
+              needsHost ? '' : 'checked'
+            } />
+            <label for="ev-host-set">Host is arranged — show the location instead</label>
+          </div>
+          <div class="field indented wide" data-show-when="hosting=set" ${needsHost ? 'hidden' : ''}>
+            <label for="ev-location">Location</label>
+            <input id="ev-location" name="location" placeholder="e.g. the Smiths' home" value="${esc(
+              event?.location ?? '',
             )}" />
           </div>
         </fieldset>
@@ -820,6 +831,7 @@ export function startApp(data, { onError } = {}) {
 
   async function submitEventForm(form) {
     const values = Object.fromEntries(new FormData(form).entries());
+    const needsHost = values.hosting === 'needed';
     const id = await data.saveEvent(
       {
         id: form.dataset.eventId || null,
@@ -827,9 +839,9 @@ export function startApp(data, { onError } = {}) {
         date: values.date,
         startTime: values.startTime ?? '',
         endTime: values.endTime ?? '',
-        location: values.location ?? '',
+        location: needsHost ? '' : (values.location ?? '').trim(),
         description: values.description ?? '',
-        needsHost: form.querySelector('[name="needsHost"]').checked,
+        needsHost,
         hostLimit: Math.max(1, Number(values.hostLimit) || 1),
         allowOtherFood: form.querySelector('[name="allowOtherFood"]').checked,
       },
@@ -999,12 +1011,15 @@ export function startApp(data, { onError } = {}) {
     }
   });
 
-  // "How many hosts" only means something once the event wants a host.
+  // Parts of a form marked data-show-when="field=value" only apply to one
+  // answer — "How many hosts" for a wanted host, "Location" for an arranged one.
   document.addEventListener('change', (domEvent) => {
-    const toggles = domEvent.target.dataset?.toggles;
-    if (!toggles) return;
-    const target = domEvent.target.closest('form')?.querySelector(`[data-toggle-target="${toggles}"]`);
-    if (target) target.hidden = !domEvent.target.checked;
+    const form = domEvent.target.closest?.('form');
+    if (!form) return;
+    for (const part of form.querySelectorAll('[data-show-when]')) {
+      const [name, value] = part.dataset.showWhen.split('=');
+      part.hidden = form.elements[name]?.value !== value;
+    }
   });
 
   document.addEventListener('submit', async (domEvent) => {

@@ -85,15 +85,15 @@ export function eventSummary(event) {
 /** The short status labels shown on a chip or card. */
 export function eventBadges(event) {
   const badges = [];
-  if (event.needsHost) {
-    if (event.hostSpotsLeft > 0) {
-      badges.push({
-        text: event.hostSpotsLeft === 1 ? 'Needs a host' : `Needs ${event.hostSpotsLeft} more hosts`,
-        warn: true,
-      });
-    } else {
-      badges.push({ text: `Hosted by ${event.hosts.map((h) => h.name).join(', ')}`, warn: false });
-    }
+  // An event whose host is arranged by the organizer has no host badge; the
+  // location on the card says where it is.
+  if (event.needsHost && event.hostSpotsLeft > 0) {
+    badges.push({
+      text: event.hostSpotsLeft === 1 ? 'Needs a host' : `Needs ${event.hostSpotsLeft} more hosts`,
+      warn: true,
+    });
+  } else if (event.hosts.length) {
+    badges.push({ text: `Hosted by ${event.hosts.map((h) => h.name).join(', ')}`, warn: false });
   }
 
   const short = foodStillNeeded(event);

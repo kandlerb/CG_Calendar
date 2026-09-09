@@ -155,14 +155,16 @@ sign-up for them.
 
 ## Using it
 
-1. An organizer adds events — title, date, time, place, how many hosts are
-   needed, and the food slots to fill. Add as many slots as you like. The
+1. An organizer adds events — title, date, time, and the food slots to fill.
+   For the host, pick one: **still looking for a host**, which lets people
+   sign up to host, or **host is arranged**, which shows the location instead
+   and asks nobody to host. Add as many food slots as you like. The
    number beside each slot is **how many people you want for it** — a minimum,
    not a cap. Set it to 0 if any number will do.
 2. Send the group the link. "Copy link to this event" inside an event gives a
    link that opens straight to that week.
-3. Someone taps **Sign up to host**, leaving a note like the address or where
-   to park.
+3. If the event is still looking for a host, someone taps **Sign up to
+   host**, leaving a note like the address or where to park.
 4. Everyone else picks a food slot and types what they're bringing. A slot
    never closes: once it has the number you asked for it shows as covered, and
    anyone who wants to add another side dish still can. Each person's own
