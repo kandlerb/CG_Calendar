@@ -23,7 +23,7 @@ function toEvent(row) {
     foodSlots: (row.food_slots ?? []).map((slot) => ({
       id: slot.id,
       label: slot.label,
-      capacity: slot.capacity,
+      needed: slot.needed,
       position: slot.position ?? 0,
     })),
     signups: (row.signups ?? []).map((signup) => ({
@@ -169,7 +169,7 @@ export function createSupabaseData(client) {
           p_slots: slots.map((slot) => ({
             id: slot.id || null,
             label: slot.label,
-            capacity: slot.capacity,
+            needed: slot.needed,
           })),
         }),
       );

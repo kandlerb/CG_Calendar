@@ -6,7 +6,7 @@
 //
 // With just the URL and anon key it checks what a visitor sees, and that the
 // database refuses what it should. Add an organizer's login and it also
-// creates a throwaway event, exercises the host and capacity rules against
+// creates a throwaway event, exercises the host and sign-up rules against
 // it, and deletes it again.
 //
 // Uses plain fetch — no dependencies, nothing installed.
@@ -183,8 +183,8 @@ if (organizerEmail && organizerPassword) {
             allow_other_food: true,
           },
           p_slots: [
-            { label: 'Main dish', capacity: 1 },
-            { label: 'Side dish', capacity: 0 },
+            { label: 'Main dish', needed: 1 },
+            { label: 'Side dish', needed: 0 },
           ],
         },
       });
@@ -192,7 +192,7 @@ if (organizerEmail && organizerPassword) {
       check(created.ok && Boolean(eventId), 'the organizer can create an event', created.ok ? '' : errorText(created.data));
 
       if (eventId) {
-        const slots = await api(`/rest/v1/food_slots?event_id=eq.${eventId}&select=id,label,capacity&order=position`, { token });
+        const slots = await api(`/rest/v1/food_slots?event_id=eq.${eventId}&select=id,label,needed&order=position`, { token });
         check(slots.data?.length === 2, 'its food slots were saved', `${slots.data?.length ?? 0} slot(s)`);
         const main = slots.data?.find((s) => s.label === 'Main dish');
         const sides = slots.data?.find((s) => s.label === 'Side dish');
@@ -209,7 +209,11 @@ if (organizerEmail && organizerPassword) {
           token: anonToken,
           body: { event_id: eventId, kind: 'host', name: 'Setup check two' },
         });
-        check(!host2.ok, 'a second host is refused', host2.ok ? 'IT SUCCEEDED — the capacity trigger is missing.' : errorText(host2.data));
+        check(
+          !host2.ok,
+          'a second host is refused',
+          host2.ok ? 'IT SUCCEEDED — the sign-up trigger is missing.' : errorText(host2.data),
+        );
 
         if (main) {
           const claim = await api('/rest/v1/signups', {
@@ -217,14 +221,46 @@ if (organizerEmail && organizerPassword) {
             token: anonToken,
             body: { event_id: eventId, slot_id: main.id, kind: 'food', name: 'Setup check', item: 'Lasagna' },
           });
-          check(claim.ok, 'a visitor can claim a food slot', claim.ok ? '' : errorText(claim.data));
+          check(claim.ok, 'a visitor can sign up for a food slot', claim.ok ? '' : errorText(claim.data));
 
-          const double = await api('/rest/v1/signups', {
+          // The number on a slot is a minimum, so this second person belongs.
+          const extra = await api('/rest/v1/signups', {
             method: 'POST',
             token: anonToken,
             body: { event_id: eventId, slot_id: main.id, kind: 'food', name: 'Setup check two', item: 'Chili' },
           });
-          check(!double.ok, 'a full food slot is closed', double.ok ? 'IT SUCCEEDED — the capacity trigger is missing.' : errorText(double.data));
+          check(
+            extra.ok,
+            'a slot still takes people once it has the number it asked for',
+            extra.ok ? '' : errorText(extra.data),
+          );
+
+          const stored = await api(
+            `/rest/v1/signups?slot_id=eq.${main.id}&select=name,item&order=created_at`,
+            { token },
+          );
+          check(
+            stored.data?.some((row) => row.item === 'Lasagna') && stored.data?.some((row) => row.item === 'Chili'),
+            'each person keeps what they said they are bringing',
+            (stored.data ?? []).map((r) => `${r.name}: ${r.item}`).join(', ') || 'nothing stored',
+          );
+
+          const wrongEvent = await api('/rest/v1/signups', {
+            method: 'POST',
+            token: anonToken,
+            body: {
+              event_id: eventId,
+              slot_id: '00000000-0000-0000-0000-000000000000',
+              kind: 'food',
+              name: 'Setup check three',
+              item: 'Rolls',
+            },
+          });
+          check(
+            !wrongEvent.ok,
+            'a slot from another event is refused',
+            wrongEvent.ok ? 'IT SUCCEEDED — the sign-up trigger is missing.' : errorText(wrongEvent.data),
+          );
         }
 
         if (sides) {
@@ -237,7 +273,11 @@ if (organizerEmail && organizerPassword) {
             });
             results.push(res.ok);
           }
-          check(results.every(Boolean), 'a slot set to 0 takes everyone', `${results.filter(Boolean).length} of 3 accepted`);
+          check(
+            results.every(Boolean),
+            'a slot with no minimum takes everyone',
+            `${results.filter(Boolean).length} of 3 accepted`,
+          );
         }
 
         const cleanup = await api(`/rest/v1/events?id=eq.${eventId}`, { method: 'DELETE', token });

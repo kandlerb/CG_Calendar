@@ -1,6 +1,6 @@
 // A stand-in for Supabase that keeps everything in memory, used by demo.html
 // so the calendar can be clicked through with no backend at all. It applies
-// the same host and capacity rules the database applies, so the demo behaves
+// the same host and slot rules the database applies, so the demo behaves
 // like the real thing — it just forgets everything on reload.
 
 const uid = () =>
@@ -29,7 +29,7 @@ function seed() {
         id: dinner,
         title: 'Community Group — Week 1',
         description: 'Study in Philippians, chapter 2. Kids welcome.',
-        location: 'TBD — needs a host',
+        location: '',
         date: relativeDate(3),
         startTime: '18:30',
         endTime: '20:30',
@@ -37,9 +37,9 @@ function seed() {
         hostLimit: 1,
         allowOtherFood: true,
         foodSlots: [
-          { id: mainDish, label: 'Main dish', capacity: 1, position: 0 },
-          { id: sides, label: 'Side dish', capacity: 0, position: 1 },
-          { id: dessert, label: 'Dessert', capacity: 2, position: 2 },
+          { id: mainDish, label: 'Main dish', needed: 2, position: 0 },
+          { id: sides, label: 'Side dish', needed: 3, position: 1 },
+          { id: dessert, label: 'Dessert', needed: 0, position: 2 },
         ],
         signups: [
           {
@@ -63,13 +63,13 @@ function seed() {
         date: relativeDate(12),
         startTime: '17:00',
         endTime: '21:00',
-        needsHost: true,
-        hostLimit: 2,
+        needsHost: false,
+        hostLimit: 1,
         allowOtherFood: true,
         foodSlots: [
-          { id: 'demo-slot-burgers', label: 'Burgers and buns', capacity: 1, position: 0 },
-          { id: 'demo-slot-cookout-sides', label: 'Side dish', capacity: 0, position: 1 },
-          { id: 'demo-slot-drinks', label: 'Drinks', capacity: 2, position: 2 },
+          { id: 'demo-slot-burgers', label: 'Burgers and buns', needed: 2, position: 0 },
+          { id: 'demo-slot-cookout-sides', label: 'Side dish', needed: 4, position: 1 },
+          { id: 'demo-slot-drinks', label: 'Drinks', needed: 2, position: 2 },
         ],
         signups: [],
       },
@@ -129,7 +129,7 @@ export function createDemoData() {
         foodSlots: slots.map((slot, position) => ({
           id: slot.id || uid(),
           label: slot.label,
-          capacity: slot.capacity,
+          needed: slot.needed,
           position,
         })),
       });
@@ -154,12 +154,10 @@ export function createDemoData() {
         const taken = event.signups.filter((s) => s.kind === 'host').length;
         if (taken >= event.hostLimit) throw new Error('Someone already signed up to host this event.');
       } else if (signup.slotId) {
+        // A slot asks for a number of people; it never turns anyone away for
+        // being late, so there is nothing to refuse here.
         const slot = event.foodSlots.find((s) => s.id === signup.slotId);
         if (!slot) throw new Error('That food slot is no longer on this event.');
-        const taken = event.signups.filter((s) => s.slotId === slot.id).length;
-        if (slot.capacity > 0 && taken >= slot.capacity) {
-          throw new Error(`"${slot.label}" is already covered.`);
-        }
       }
 
       event.signups.push({

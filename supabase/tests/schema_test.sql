@@ -110,7 +110,7 @@ select tests_become(:organizer::uuid);
 select public.save_event(
   '{"title":"Community Group","event_date":"2026-09-02","start_time":"18:30","end_time":"20:30",
     "location":"TBD","needs_host":true,"host_limit":1,"allow_other_food":true}'::jsonb,
-  '[{"label":"Main dish","capacity":1},{"label":"Side dish","capacity":0},{"label":"Dessert","capacity":2}]'::jsonb
+  '[{"label":"Main dish","needed":1},{"label":"Side dish","needed":0},{"label":"Dessert","needed":2}]'::jsonb
 ) as event_id \gset
 
 select tests_assert(
@@ -143,7 +143,7 @@ select tests_expect_error(
   'a second host is refused');
 
 -- ---------------------------------------------------------------------------
--- Food slot capacity
+-- Food slots ask for a number; they never turn anyone away
 -- ---------------------------------------------------------------------------
 
 select id from public.food_slots where event_id = :'event_id'::uuid and label = 'Main dish' \gset main_
@@ -153,14 +153,21 @@ select tests_become(:anna::uuid);
 insert into public.signups (event_id, slot_id, kind, name, item)
 values (:'event_id'::uuid, :'main_id'::uuid, 'food', 'Anna', 'Lasagna');
 
+-- "Main dish" asked for one person and already has one. A second is still
+-- allowed: the number is a minimum, not a cap.
 select tests_become(:bob::uuid);
-select tests_expect_error(
-  format($$insert into public.signups (event_id, slot_id, kind, name, item)
-           values (%L, %L, 'food', 'Bob', 'Chili')$$, :'event_id', :'main_id'),
-  'already covered',
-  'a full food slot is closed');
+insert into public.signups (event_id, slot_id, kind, name, item)
+values (:'event_id'::uuid, :'main_id'::uuid, 'food', 'Bob', 'Chili');
+select tests_assert(
+  (select count(*) from public.signups where slot_id = :'main_id'::uuid) = 2,
+  'a slot takes more people than it asked for');
 
--- capacity 0 means no limit
+select tests_assert(
+  (select count(*) from public.signups
+    where slot_id = :'main_id'::uuid and name = 'Bob' and item = 'Chili') = 1,
+  'each person keeps what they said they are bringing');
+
+-- A slot asking for nobody in particular behaves the same way.
 insert into public.signups (event_id, slot_id, kind, name, item)
 values (:'event_id'::uuid, :'side_id'::uuid, 'food', 'Bob', 'Green beans');
 select tests_become(:anna::uuid);
@@ -171,7 +178,15 @@ insert into public.signups (event_id, slot_id, kind, name, item)
 values (:'event_id'::uuid, :'side_id'::uuid, 'food', 'Brian', 'Corn casserole');
 select tests_assert(
   (select count(*) from public.signups where slot_id = :'side_id'::uuid) = 3,
-  'a slot with no limit takes everyone');
+  'a slot with no minimum takes everyone');
+
+-- What is still enforced: the slot has to belong to this event.
+select tests_become(:bob::uuid);
+select tests_expect_error(
+  format($$insert into public.signups (event_id, slot_id, kind, name, item)
+           values (%L, gen_random_uuid(), 'food', 'Bob', 'Rolls')$$, :'event_id'),
+  'no longer on this event',
+  'a sign-up cannot name a slot from another event');
 
 -- Food sign-ups must say what they are bringing.
 select tests_become(:bob::uuid);
@@ -227,7 +242,7 @@ select tests_become(:organizer::uuid);
 select public.save_event(
   format('{"id":"%s","title":"Potluck","event_date":"2026-09-02","needs_host":true,
            "host_limit":1,"allow_other_food":true}', :'event_id')::jsonb,
-  format('[{"id":"%s","label":"Main dish","capacity":1}]', :'main_id')::jsonb
+  format('[{"id":"%s","label":"Main dish","needed":1}]', :'main_id')::jsonb
 );
 select tests_assert(
   (select title from public.events where id = :'event_id'::uuid) = 'Potluck',
@@ -261,9 +276,9 @@ select tests_expect_error(
   'an event cannot end before it starts');
 
 select tests_expect_error(
-  $$select public.save_event('{"title":"Bad slot","event_date":"2026-09-02"}'::jsonb, '[{"label":"Salad","capacity":-1}]'::jsonb)$$,
-  'food_slots_capacity_check',
-  'a food slot cannot have a negative capacity');
+  $$select public.save_event('{"title":"Bad slot","event_date":"2026-09-02"}'::jsonb, '[{"label":"Salad","needed":-1}]'::jsonb)$$,
+  'food_slots_needed_check',
+  'a food slot cannot need a negative number of people');
 
 -- ---------------------------------------------------------------------------
 -- Your own display name
@@ -359,8 +374,8 @@ select tests_assert(
 -- A trigger function is never called by hand; PostgreSQL checks the privilege
 -- when the trigger is created, not when it fires.
 select tests_assert(
-  not has_function_privilege('anon', 'public.enforce_signup_capacity()', 'execute'),
-  'the capacity trigger function is not on the REST API');
+  not has_function_privilege('anon', 'public.enforce_signup_rules()', 'execute'),
+  'the sign-up trigger function is not on the REST API');
 
 -- Deleting an event takes its slots and sign-ups with it.
 delete from public.events where id = :'event_id'::uuid;

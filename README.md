@@ -26,16 +26,16 @@ Supabase is that somewhere: a hosted Postgres database with a built-in API. Its
 free tier is far more than a community group calendar will ever use.
 
 It also enforces the part that matters. The rules about **who may create
-events** and **whether a food slot is still open** live in the database
-(`supabase/schema.sql`), not in the browser. Someone poking at the page with
-developer tools still can't add an event or double-book the main dish.
+events** live in the database (`supabase/schema.sql`), not in the browser.
+Someone poking at the page with developer tools still can't add an event, take
+a host spot that is gone, or attach a sign-up to another event's food slot.
 
 ## Setting it up
 
 About fifteen minutes, once.
 
 > **This repository is already set up.** Every step below is done for the
-> Supabase project `CG_Calendar`: the tables, row level security and capacity
+> Supabase project `CG_Calendar`: the tables, row level security and sign-up
 > trigger from `supabase/schema.sql` are applied, anonymous sign-ins are on,
 > Brian and Timothy are organizers, and `public/config.js` holds the project
 > URL and publishable key. Step 6 reports 8 of 8 passing.
@@ -111,8 +111,7 @@ node scripts/verify-supabase.mjs https://<ref>.supabase.co <anon-key>
 This asks your project the questions that matter: are the tables there, are
 anonymous sign-ins on, and does the database actually refuse to let a visitor
 create an event. Add an organizer's email and password to also have it create
-a throwaway event, try to double-book the main dish, and clean up after
-itself:
+a throwaway event, check the sign-up rules hold, and clean up after itself:
 
 ```bash
 node scripts/verify-supabase.mjs https://<ref>.supabase.co <anon-key> you@example.com 'your-password'
@@ -156,34 +155,35 @@ sign-up for them.
 
 ## Using it
 
-1. An organizer adds events — title, date, time, place, how many hosts are
-   needed, and the food slots to fill. Add as many slots as you like; there's
-   no cap. The number beside each slot is how many people can claim it — **set
-   it to 0 for no limit**, so any number of people can bring a side dish.
+1. An organizer adds events — title, date, time, and the food slots to fill.
+   For the host, pick one: **still looking for a host**, which lets people
+   sign up to host, or **host is arranged**, which shows the location instead
+   and asks nobody to host. Add as many food slots as you like. The
+   number beside each slot is **how many people you want for it** — a minimum,
+   not a cap. Set it to 0 if any number will do.
 2. Send the group the link. "Copy link to this event" inside an event gives a
    link that opens straight to that week.
-3. Someone taps **Sign up to host**, leaving a note like the address or where
-   to park.
-4. Everyone else claims a food slot and says what they're bringing. A slot with
-   a limit closes once it fills, so two people can't both claim the main dish —
-   the database refuses the second one rather than silently overwriting.
+3. If the event is still looking for a host, someone taps **Sign up to
+   host**, leaving a note like the address or where to park.
+4. Everyone else picks a food slot and types what they're bringing. A slot
+   never closes: once it has the number you asked for it shows as covered, and
+   anyone who wants to add another side dish still can. Each person's own
+   sign-up records what they are bringing, so the list under a slot reads as
+   "Anna — Lasagna, Bob — Chili" rather than a bare count.
 
 ### What a first-time visitor sees
 
-The page opens with a short **How it works** panel: find the event, open it,
-add your name. Closing it is remembered, and the **How it works** button in
-the header brings it back.
+The page opens with a **How to use this calendar** panel: find the event, open
+it, sign up. Closing it is remembered, and the **How to use** button in the
+header reopens it.
 
-From there:
-
-- **Month** shows the whole month; **Upcoming** is a plain list of what's next,
-  which is what a phone opens on. Whichever you pick is remembered.
-- Every event opens to one line saying what it still needs — *"Still needed: a
-  host and 2 food slots"* — before any of the detail.
-- Sign-ups you made are marked **You**, so you can tell yours apart and cancel
-  them. That marker follows the browser, not an account.
-- A month with nothing in it says so, and offers to jump to the next event
-  rather than leaving you looking at empty squares.
+- **Month** shows the grid; **Upcoming** shows a list, and is what a phone
+  opens on. The choice is remembered.
+- Each event opens with one line stating what is unfilled, such as *Still
+  needed: a host and 2 food slots.*
+- Your own sign-ups are marked **You**. The marker is tied to the browser, not
+  to an account.
+- A month with no events says so and links to the month of the next event.
 
 ## Day-to-day
 
@@ -219,7 +219,7 @@ node scripts/verify-supabase.mjs <url> <anon-key> [email] [password]   # checks 
 `PGPASSWORD` as usual). It creates a scratch database, applies the schema, and
 checks the security rules hold — that a participant can't create an event,
 can't edit someone else's sign-up, can't post as someone else, and can't take a
-slot that's already full. CI runs both on every push.
+slot belonging to a different event. CI runs both on every push.
 
 ## Layout
 
@@ -233,7 +233,7 @@ public/                the website — this is what GitHub Pages serves
   lib/model.js         turning rows into what's on screen
   lib/supabase-data.js everything that talks to Supabase
   lib/demo-data.js     the stand-in used by demo.html
-supabase/schema.sql    tables, row level security, capacity rules
+supabase/schema.sql    tables, row level security, sign-up rules
 supabase/tests/        those rules, tested against a real PostgreSQL
 test/                  unit tests for the browser modules
 scripts/test-schema.sh runs the schema tests

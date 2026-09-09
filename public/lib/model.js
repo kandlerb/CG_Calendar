@@ -1,19 +1,22 @@
 // Turning stored rows into what the page shows. Kept free of the DOM and of
 // the backend so it can be tested on its own.
 //
-// A food slot's capacity of 0 means no limit. Whether a sign-up is really
-// allowed is decided by the database; these helpers only decide what to draw.
+// A food slot's `needed` is how many people the organizer wants, not a cap:
+// a slot never closes, so anyone can still add to it once the number is met.
+// `needed` of 0 means no particular number was asked for.
 
 export function slotState(slot, signups) {
   const people = signups.filter((s) => s.kind === 'food' && s.slotId === slot.id);
-  const unlimited = slot.capacity === 0;
+  const needed = Number.isInteger(slot.needed) ? slot.needed : 0;
+  const noMinimum = needed === 0;
   return {
     ...slot,
+    needed,
     people,
     taken: people.length,
-    unlimited,
-    hasRoom: unlimited || people.length < slot.capacity,
-    spotsLeft: unlimited ? Infinity : Math.max(0, slot.capacity - people.length),
+    noMinimum,
+    stillNeeded: noMinimum ? 0 : Math.max(0, needed - people.length),
+    met: noMinimum || people.length >= needed,
   };
 }
 
@@ -58,9 +61,9 @@ function joinWords(parts) {
 
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
-/** How many people could still claim a slot that has a limit. */
-export function openFoodSpots(event) {
-  return event.foodSlots.reduce((sum, slot) => sum + (slot.unlimited ? 0 : slot.spotsLeft), 0);
+/** How many more people the slots are still asking for, across the event. */
+export function foodStillNeeded(event) {
+  return event.foodSlots.reduce((sum, slot) => sum + slot.stillNeeded, 0);
 }
 
 /**
@@ -72,35 +75,30 @@ export function eventSummary(event) {
   if (event.needsHost && event.hostSpotsLeft > 0) {
     needs.push(event.hostSpotsLeft === 1 ? 'a host' : `${event.hostSpotsLeft} more hosts`);
   }
-  const openSlots = event.foodSlots.filter((slot) => !slot.unlimited && slot.hasRoom).length;
-  if (openSlots > 0) needs.push(plural(openSlots, 'food slot'));
+  const short = foodStillNeeded(event);
+  if (short > 0) needs.push(plural(short, 'more food sign-up'));
 
   if (needs.length) return { done: false, text: `Still needed: ${joinWords(needs)}.` };
-  if (event.foodSlots.some((slot) => slot.unlimited) || event.allowOtherFood) {
-    return { done: true, text: 'Everything is covered — extra food is still welcome.' };
-  }
-  return { done: true, text: 'Everything is covered for this event.' };
+  return { done: true, text: 'Every slot has the number it asked for. More food is still welcome.' };
 }
 
 /** The short status labels shown on a chip or card. */
 export function eventBadges(event) {
   const badges = [];
-  if (event.needsHost) {
-    if (event.hostSpotsLeft > 0) {
-      badges.push({
-        text: event.hostSpotsLeft === 1 ? 'Needs a host' : `Needs ${event.hostSpotsLeft} more hosts`,
-        warn: true,
-      });
-    } else {
-      badges.push({ text: `Hosted by ${event.hosts.map((h) => h.name).join(', ')}`, warn: false });
-    }
+  // An event whose host is arranged by the organizer has no host badge; the
+  // location on the card says where it is.
+  if (event.needsHost && event.hostSpotsLeft > 0) {
+    badges.push({
+      text: event.hostSpotsLeft === 1 ? 'Needs a host' : `Needs ${event.hostSpotsLeft} more hosts`,
+      warn: true,
+    });
+  } else if (event.hosts.length) {
+    badges.push({ text: `Hosted by ${event.hosts.map((h) => h.name).join(', ')}`, warn: false });
   }
 
-  const openSpots = openFoodSpots(event);
-  if (openSpots > 0) {
-    badges.push({ text: `${plural(openSpots, 'food slot')} open`, warn: true });
-  } else if (event.foodSlots.some((slot) => slot.unlimited)) {
-    badges.push({ text: 'More food welcome', warn: true });
+  const short = foodStillNeeded(event);
+  if (short > 0) {
+    badges.push({ text: `${plural(short, 'more food sign-up')} needed`, warn: true });
   } else if (event.foodSlots.length) {
     badges.push({ text: 'Food covered', warn: false });
   }
@@ -110,7 +108,7 @@ export function eventBadges(event) {
     badges.push({ text: `${people} bringing food`, warn: false });
   }
   if (event.mine?.length) {
-    badges.push({ text: "You're signed up", warn: false, mine: true });
+    badges.push({ text: 'You signed up', warn: false, mine: true });
   }
   return badges;
 }
