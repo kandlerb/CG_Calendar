@@ -40,11 +40,26 @@ function toEvent(row) {
   };
 }
 
+/**
+ * "permission denied for table …". Never a rules problem: the grants in
+ * schema.sql give every signed-in visitor the privileges the app uses, and a
+ * rule that fails says "violates row-level security" instead (the two share
+ * SQLSTATE 42501, so the message is what tells them apart). It means the
+ * request went out with no session, so the database ran it as "anon" — a
+ * signed-out visitor, who may only read. The Supabase client does that
+ * quietly: whenever it cannot produce a session it sends the public key in
+ * place of the user's token rather than failing.
+ */
+function isPermissionDenied(error) {
+  return /permission denied for (?:table|function|schema)/i.test(error?.message ?? '');
+}
+
 /** Supabase errors are readable enough to show, once the noise is trimmed. */
 function describe(error) {
   const message = error?.message ?? 'Something went wrong.';
   const match = message.match(/(?:new row|row) violates row-level security/i);
   if (match) return 'You are not allowed to do that.';
+  if (isPermissionDenied(error)) return 'Your session ended. Reload the page and try again.';
   return message
     .replace(/^.*\bERROR:\s*/i, '')
     .replace(/\s*\(SQLSTATE.*\)$/i, '')
@@ -79,6 +94,53 @@ export function createSupabaseData(client) {
     return viewer;
   }
 
+  async function signInAnonymously() {
+    const result = await client.auth.signInAnonymously();
+    if (result.error) {
+      // Two very different causes, and sending someone to check a setting
+      // that is already correct wastes their time.
+      const disabled =
+        result.error.code === 'anonymous_provider_disabled' ||
+        /anonymous sign-ins are disabled/i.test(result.error.message ?? '');
+      throw new Error(
+        disabled
+          ? 'Anonymous sign-ins are turned off for this Supabase project, so nobody can ' +
+            'sign up. An organizer can enable them under Authentication → Sign In / Providers.'
+          : `Could not reach the Supabase project: ${result.error.message}. ` +
+            'Check your connection and reload.',
+      );
+    }
+    return result.data.session;
+  }
+
+  /**
+   * Replaces whatever session the browser holds. A visitor's anonymous
+   * identity is disposable — a new one signs up just as well, and only the
+   * "You" marker on earlier sign-ups is lost. An organizer's is not: turning
+   * them anonymous would quietly take their powers away, so they sign in again.
+   */
+  async function startFreshSession() {
+    if (viewer && !viewer.anonymous) {
+      throw new Error('Your organizer sign-in has expired. Sign in again to continue.');
+    }
+    return refreshViewer(await signInAnonymously());
+  }
+
+  /**
+   * Every write goes through here. The Supabase client will not say when it
+   * has lost the session — it sends the public key instead and the database
+   * answers "permission denied" — so check before sending, and if the
+   * database still saw no session, replace it and send once more.
+   */
+  async function write(send) {
+    const { data } = await client.auth.getSession();
+    if (!data?.session) await startFreshSession();
+    const first = await send();
+    if (!isPermissionDenied(first?.error)) return unwrap(first);
+    await startFreshSession();
+    return unwrap(await send());
+  }
+
   return {
     /**
      * Everyone gets a session — organizers by signing in, everyone else
@@ -87,26 +149,7 @@ export function createSupabaseData(client) {
      */
     async init() {
       const { data } = await client.auth.getSession();
-      let session = data.session;
-      if (!session) {
-        const result = await client.auth.signInAnonymously();
-        if (result.error) {
-          // Two very different causes, and sending someone to check a setting
-          // that is already correct wastes their time.
-          const disabled =
-            result.error.code === 'anonymous_provider_disabled' ||
-            /anonymous sign-ins are disabled/i.test(result.error.message ?? '');
-          throw new Error(
-            disabled
-              ? 'Anonymous sign-ins are turned off for this Supabase project, so nobody can ' +
-                'sign up. An organizer can enable them under Authentication → Sign In / Providers.'
-              : `Could not reach the Supabase project: ${result.error.message}. ` +
-                'Check your connection and reload.',
-          );
-        }
-        session = result.data.session;
-      }
-      return refreshViewer(session);
+      return refreshViewer(data.session ?? (await signInAnonymously()));
     },
 
     viewer: () => viewer,
@@ -133,8 +176,8 @@ export function createSupabaseData(client) {
      * schema.sql are what actually confine this to your row.
      */
     async setName(name) {
-      const rows = unwrap(
-        await client.from('organizers').update({ name }).eq('user_id', viewer.id).select('name'),
+      const rows = await write(() =>
+        client.from('organizers').update({ name }).eq('user_id', viewer.id).select('name'),
       );
       if (!rows?.length) throw new Error('Could not save that name.');
       viewer = { ...viewer, name: rows[0].name };
@@ -152,8 +195,8 @@ export function createSupabaseData(client) {
     },
 
     async saveEvent(event, slots) {
-      return unwrap(
-        await client.rpc('save_event', {
+      return write(() =>
+        client.rpc('save_event', {
           p_event: {
             id: event.id ?? null,
             title: event.title,
@@ -176,12 +219,12 @@ export function createSupabaseData(client) {
     },
 
     async deleteEvent(id) {
-      unwrap(await client.from('events').delete().eq('id', id));
+      await write(() => client.from('events').delete().eq('id', id));
     },
 
     async addSignup(signup) {
-      unwrap(
-        await client.from('signups').insert({
+      await write(() =>
+        client.from('signups').insert({
           event_id: signup.eventId,
           slot_id: signup.slotId || null,
           kind: signup.kind,
@@ -194,11 +237,11 @@ export function createSupabaseData(client) {
     },
 
     async updateSignup(id, patch) {
-      unwrap(await client.from('signups').update(patch).eq('id', id));
+      await write(() => client.from('signups').update(patch).eq('id', id));
     },
 
     async deleteSignup(id) {
-      unwrap(await client.from('signups').delete().eq('id', id));
+      await write(() => client.from('signups').delete().eq('id', id));
     },
   };
 }
