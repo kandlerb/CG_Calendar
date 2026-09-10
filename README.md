@@ -190,6 +190,15 @@ header reopens it.
 **Adding or removing an organizer** is the SQL in step 4, or
 `delete from public.organizers where user_id = (select id from auth.users where email = '…');`
 
+**"Permission denied for table signups"** in the Supabase logs means a request
+arrived with no session, so the database ran it as a signed-out visitor, who
+may only read. The log's hint suggests `GRANT INSERT ON public.signups TO
+anon;` — don't: that would let anyone write without a session, and the grants
+in `schema.sql` are already right. The browser's Supabase client can lose its
+session and then quietly sends the public key instead of the visitor's token.
+The page checks for that before every write, starts a fresh anonymous session
+if needed, and retries once; if it still fails, the visitor is told to reload.
+
 **Backups**: Supabase's dashboard has **Database → Backups**. For a copy you
 hold yourself, the table editor exports any table to CSV.
 
