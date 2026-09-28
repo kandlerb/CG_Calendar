@@ -22,6 +22,7 @@ import {
   shapeEvents,
   upcoming,
 } from './lib/model.js';
+import { LIMITS, cleanSlots, eventFromForm, loadWindowStart, signupFromForm, slotStatus } from './lib/forms.js';
 
 const WEEKDAYS = [
   { short: 'Sun', full: 'Sunday' },
@@ -76,6 +77,10 @@ export function startApp(data, { onError } = {}) {
     view: storedView === 'month' || storedView === 'list' ? storedView : window.innerWidth < 720 ? 'list' : 'month',
     viewChosen: Boolean(storedView),
     cursor: startOfMonth(new Date()),
+    // Old events are only fetched once someone steps back far enough to see
+    // them; see loadEarlierIfNeeded().
+    since: loadWindowStart(new Date()),
+    loadedAt: 0,
     expandedDay: null,
     modal: null,
   };
@@ -112,7 +117,8 @@ export function startApp(data, { onError } = {}) {
   // --- data ----------------------------------------------------------------
 
   async function reload() {
-    const raw = await data.loadEvents();
+    const raw = await data.loadEvents({ since: state.since });
+    state.loadedAt = Date.now();
     state.viewer = data.viewer();
     state.events = shapeEvents(raw, {
       userId: state.viewer?.id ?? null,
@@ -126,6 +132,26 @@ export function startApp(data, { onError } = {}) {
     await reload();
     render();
     if (keepModal) renderModal();
+  }
+
+  /** Stepping back past what has been loaded fetches the older events. */
+  async function loadEarlierIfNeeded() {
+    const monthKey = isoDate(state.cursor);
+    if (!state.since || monthKey >= state.since) return;
+    state.since = monthKey;
+    await reload();
+    render();
+  }
+
+  /**
+   * Finds an event a link points at. A link to an old event may be outside
+   * what was loaded, so look at everything once before giving up.
+   */
+  async function findLinkedEvent(id) {
+    if (eventById(id) || !state.since) return eventById(id) ?? null;
+    state.since = null;
+    await reload();
+    return eventById(id) ?? null;
   }
 
   // --- the "how this works" panel ------------------------------------------
@@ -284,8 +310,8 @@ export function startApp(data, { onError } = {}) {
   function renderMonth() {
     const byDate = groupByDate(state.events);
     const todayKey = isoDate(new Date());
-    let html = `<div class="weekdays" role="row">${WEEKDAYS.map(
-      (d) => `<div role="columnheader"><abbr title="${d.full}">${d.short}</abbr></div>`,
+    let html = `<div class="weekdays">${WEEKDAYS.map(
+      (d) => `<div><abbr title="${d.full}">${d.short}</abbr></div>`,
     ).join('')}</div>`;
 
     const canAdd = Boolean(state.viewer?.isOrganizer);
@@ -336,13 +362,16 @@ export function startApp(data, { onError } = {}) {
     }
     el.agenda.innerHTML = list
       .map(
-        (event) => `<button type="button" class="agenda-card" data-event="${esc(event.id)}">
+        // The title is the button; its ::after stretches over the whole card so
+        // the card still opens from anywhere, without a heading, paragraphs
+        // and badges all being read out as one button's name.
+        (event) => `<article class="agenda-card">
           <p class="when">${esc(formatLongDate(event.date))} · ${esc(formatTimeRange(event))}</p>
-          <h3>${esc(event.title)}</h3>
+          <h3><button type="button" class="agenda-open" data-event="${esc(event.id)}">${esc(event.title)}</button></h3>
           ${event.location ? `<p class="where">${esc(event.location)}</p>` : ''}
           ${badgeHtml(eventBadges(event))}
-          <span class="agenda-cue">Open to sign up →</span>
-        </button>`,
+          <span class="agenda-cue" aria-hidden="true">Open to sign up →</span>
+        </article>`,
       )
       .join('');
   }
@@ -350,6 +379,26 @@ export function startApp(data, { onError } = {}) {
   // --- modals --------------------------------------------------------------
 
   let returnFocusTo = null;
+
+  // What the dialog's forms held when they were drawn, to tell whether
+  // closing it would throw away something the person typed.
+  let modalSnapshot = '';
+  function formSnapshot() {
+    return [...el.modalRoot.querySelectorAll('form')]
+      .map((form) => JSON.stringify([...new FormData(form).entries()]))
+      .join('|');
+  }
+
+  /**
+   * Escape, the backdrop and the × all close the dialog. If that would lose
+   * what someone typed, ask first. The Cancel buttons are an explicit choice
+   * to discard, so they close without asking.
+   */
+  function requestClose() {
+    if (!state.modal) return;
+    if (formSnapshot() !== modalSnapshot && !window.confirm('Discard what you have typed?')) return;
+    closeModal();
+  }
 
   /**
    * Where to put the keyboard when the dialog closes. A sign-up redraws the
@@ -375,7 +424,7 @@ export function startApp(data, { onError } = {}) {
     el.modalRoot.hidden = true;
     el.modalRoot.innerHTML = '';
     document.body.classList.remove('modal-open');
-    if (location.hash.startsWith('#event=')) history.replaceState(null, '', location.pathname);
+    if (location.hash.startsWith('#event=')) history.replaceState(null, '', location.pathname + location.search);
     // Without this the keyboard lands back at the top of the page every time.
     const back = returnFocusTo?.node?.isConnected
       ? returnFocusTo.node
@@ -386,7 +435,7 @@ export function startApp(data, { onError } = {}) {
     returnFocusTo = null;
   }
 
-  function renderModal() {
+  function renderModal({ focus = true } = {}) {
     const modal = state.modal;
     if (!modal) {
       closeModal();
@@ -408,6 +457,8 @@ export function startApp(data, { onError } = {}) {
     el.modalRoot.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">${html}</div>`;
     el.modalRoot.hidden = false;
     document.body.classList.add('modal-open');
+    modalSnapshot = formSnapshot();
+    if (!focus) return;
     const focusTarget = el.modalRoot.querySelector('[data-autofocus]') ?? el.modalRoot.querySelector('.close');
     focusTarget?.focus();
   }
@@ -453,7 +504,7 @@ export function startApp(data, { onError } = {}) {
         <p class="error" data-error hidden></p>
         <div class="form-actions">
           <button type="submit" class="btn primary">Sign in</button>
-          <button type="button" class="btn ghost" data-close>Cancel</button>
+          <button type="button" class="btn ghost" data-close data-discard>Cancel</button>
         </div>
       </form>`;
   }
@@ -471,13 +522,13 @@ export function startApp(data, { onError } = {}) {
       <form class="signup" data-form="rename">
         <div class="field">
           <label for="rename-name">Name</label>
-          <input id="rename-name" name="name" maxlength="80" value="${esc(current)}"
+          <input id="rename-name" name="name" maxlength="${LIMITS.name}" value="${esc(current)}"
                  placeholder="${esc(state.viewer?.email ?? '')}" data-autofocus required />
         </div>
         <p class="error" data-error hidden></p>
         <div class="form-actions">
           <button type="submit" class="btn primary">Save</button>
-          <button type="button" class="btn ghost" data-close>Cancel</button>
+          <button type="button" class="btn ghost" data-close data-discard>Cancel</button>
         </div>
       </form>`;
   }
@@ -516,24 +567,26 @@ export function startApp(data, { onError } = {}) {
       <div class="row">
         <div class="field">
           <label for="su-name">Your name</label>
-          <input id="su-name" name="name" value="${esc(remembered.read(NAME_KEY))}" data-autofocus required />
+          <input id="su-name" name="name" maxlength="${LIMITS.name}" autocomplete="name"
+                 value="${esc(remembered.read(NAME_KEY))}" data-autofocus required />
         </div>
         <div class="field">
           <label for="su-contact">Phone or email <span class="help">(optional, organizers only)</span></label>
-          <input id="su-contact" name="contact" value="${esc(remembered.read(CONTACT_KEY))}" />
+          <input id="su-contact" name="contact" maxlength="${LIMITS.contact}"
+                 value="${esc(remembered.read(CONTACT_KEY))}" />
         </div>
       </div>
       ${
         needsItem
           ? `<div class="field">
               <label for="su-item">What you will bring</label>
-              <input id="su-item" name="item" placeholder="e.g. chicken enchiladas for 12" required />
+              <input id="su-item" name="item" maxlength="${LIMITS.item}" placeholder="e.g. chicken enchiladas for 12" required />
             </div>`
           : ''
       }
       <div class="field">
         <label for="su-note">Note <span class="help">(optional)</span></label>
-        <input id="su-note" name="note" placeholder="${esc(
+        <input id="su-note" name="note" maxlength="${LIMITS.note}" placeholder="${esc(
           kind === 'host' ? 'Address, parking notes…' : 'Gluten free, needs oven space…',
         )}" />
       </div>
@@ -571,15 +624,6 @@ export function startApp(data, { onError } = {}) {
       }
       ${formOpen ? signupFormHtml({ kind: 'host', needsItem: false }) : ''}
     </div>`;
-  }
-
-  function slotStatus(slot) {
-    if (slot.noMinimum) return { text: `${slot.taken} signed up. No number set.`, tone: 'open' };
-    // Past the number asked for, "5 of 2" reads like a mistake; just say how
-    // many are coming.
-    if (slot.taken > slot.needed) return { text: `${slot.taken} signed up. Covered.`, tone: 'done' };
-    if (slot.met) return { text: `${slot.taken} of ${slot.needed}. Covered.`, tone: 'done' };
-    return { text: `${slot.taken} of ${slot.needed}. ${slot.stillNeeded} more needed.`, tone: 'open' };
   }
 
   function foodSectionHtml(event, modal) {
@@ -682,7 +726,7 @@ export function startApp(data, { onError } = {}) {
 
   function slotEditorRow(slot = { label: '', needed: 1, id: '' }) {
     return `<div class="slot-editor-row" data-slot-row>
-      <input name="slot-label" placeholder="e.g. Main dish" aria-label="What people bring" value="${esc(
+      <input name="slot-label" maxlength="${LIMITS.slotLabel}" placeholder="e.g. Main dish" aria-label="What people bring" value="${esc(
         slot.label,
       )}" />
       <input name="slot-needed" type="number" min="0" value="${esc(
@@ -695,7 +739,9 @@ export function startApp(data, { onError } = {}) {
 
   function eventFormHtml(event, presetDate) {
     const editing = Boolean(event);
-    const slots = editing && event.foodSlots.length ? event.foodSlots : [{ label: 'Main dish', needed: 1, id: '' }];
+    // A new event starts with one slot to show how it works. An event being
+    // edited keeps exactly the slots it has — none, if the organizer removed them.
+    const slots = editing ? event.foodSlots : [{ label: 'Main dish', needed: 1, id: '' }];
     const needsHost = event ? event.needsHost : true;
     return `
       <div class="modal-head">
@@ -710,7 +756,7 @@ export function startApp(data, { onError } = {}) {
           <legend>What and when</legend>
           <div class="field">
             <label for="ev-title">Title</label>
-            <input id="ev-title" name="title" placeholder="e.g. Community Group — Week 3" value="${esc(
+            <input id="ev-title" name="title" maxlength="${LIMITS.title}" placeholder="e.g. Community Group — Week 3" value="${esc(
               event?.title ?? '',
             )}" data-autofocus required />
           </div>
@@ -734,7 +780,7 @@ export function startApp(data, { onError } = {}) {
           </div>
           <div class="field">
             <label for="ev-description">Details <span class="help">(optional)</span></label>
-            <textarea id="ev-description" name="description" placeholder="Topic, whether kids are welcome, other details">${esc(
+            <textarea id="ev-description" name="description" maxlength="${LIMITS.description}" placeholder="Topic, whether kids are welcome, other details">${esc(
               event?.description ?? '',
             )}</textarea>
           </div>
@@ -767,7 +813,7 @@ export function startApp(data, { onError } = {}) {
           </div>
           <div class="field indented wide" data-show-when="hosting=set" ${needsHost ? 'hidden' : ''}>
             <label for="ev-location">Location</label>
-            <input id="ev-location" name="location" placeholder="e.g. the Smiths' home" value="${esc(
+            <input id="ev-location" name="location" maxlength="${LIMITS.location}" placeholder="e.g. the Smiths' home" value="${esc(
               event?.location ?? '',
             )}" />
           </div>
@@ -802,7 +848,7 @@ export function startApp(data, { onError } = {}) {
         <p class="error" data-error hidden></p>
         <div class="form-actions">
           <button type="submit" class="btn primary">${editing ? 'Save changes' : 'Create event'}</button>
-          <button type="button" class="btn ghost" data-close>Cancel</button>
+          <button type="button" class="btn ghost" data-close data-discard>Cancel</button>
         </div>
       </form>`;
   }
@@ -810,13 +856,13 @@ export function startApp(data, { onError } = {}) {
   // --- form handling -------------------------------------------------------
 
   function collectSlots(form) {
-    return [...form.querySelectorAll('[data-slot-row]')]
-      .map((row) => ({
+    return cleanSlots(
+      [...form.querySelectorAll('[data-slot-row]')].map((row) => ({
         id: row.querySelector('[name="slot-id"]').value,
-        label: row.querySelector('[name="slot-label"]').value.trim(),
-        needed: Math.max(0, Number(row.querySelector('[name="slot-needed"]').value) || 0),
-      }))
-      .filter((slot) => slot.label);
+        label: row.querySelector('[name="slot-label"]').value,
+        needed: row.querySelector('[name="slot-needed"]').value,
+      })),
+    );
   }
 
   function showFormError(form, message) {
@@ -832,22 +878,14 @@ export function startApp(data, { onError } = {}) {
 
   async function submitEventForm(form) {
     const values = Object.fromEntries(new FormData(form).entries());
-    const needsHost = values.hosting === 'needed';
-    const id = await data.saveEvent(
-      {
-        id: form.dataset.eventId || null,
-        title: values.title,
-        date: values.date,
-        startTime: values.startTime ?? '',
-        endTime: values.endTime ?? '',
-        location: needsHost ? '' : (values.location ?? '').trim(),
-        description: values.description ?? '',
-        needsHost,
-        hostLimit: Math.max(1, Number(values.hostLimit) || 1),
-        allowOtherFood: form.querySelector('[name="allowOtherFood"]').checked,
-      },
-      collectSlots(form),
-    );
+    const event = eventFromForm(values, {
+      id: form.dataset.eventId,
+      allowOtherFood: form.querySelector('[name="allowOtherFood"]').checked,
+    });
+    // An earlier month may not have been loaded; saving into it should still
+    // show the event afterwards.
+    if (state.since && event.date < state.since) state.since = event.date;
+    const id = await data.saveEvent(event, collectSlots(form));
     await reload();
     render();
     openModal({ type: 'event', eventId: id, form: null });
@@ -856,18 +894,17 @@ export function startApp(data, { onError } = {}) {
 
   async function submitSignupForm(form) {
     const values = Object.fromEntries(new FormData(form).entries());
-    remembered.write(NAME_KEY, values.name?.trim());
-    remembered.write(CONTACT_KEY, values.contact?.trim() ?? '');
-    await data.addSignup({
-      eventId: state.modal.eventId,
+    // Held on to, because the dialog may be closed while the save is running.
+    const modal = state.modal;
+    const signup = signupFromForm(values, {
+      eventId: modal.eventId,
       kind: form.dataset.kind,
-      slotId: form.dataset.slot || null,
-      name: values.name,
-      contact: values.contact ?? '',
-      item: values.item ?? '',
-      note: values.note ?? '',
+      slotId: form.dataset.slot,
     });
-    state.modal.form = null;
+    remembered.write(NAME_KEY, signup.name);
+    remembered.write(CONTACT_KEY, signup.contact);
+    await data.addSignup(signup);
+    modal.form = null;
     await refresh();
     toast(form.dataset.kind === 'host' ? 'Signed up to host.' : 'Sign-up added.');
   }
@@ -916,8 +953,10 @@ export function startApp(data, { onError } = {}) {
         state.cursor = addMonths(state.cursor, target.id === 'prev' ? -1 : 1);
         state.expandedDay = null;
         render();
+        await loadEarlierIfNeeded();
       } else if (target.id === 'today') {
         state.cursor = startOfMonth(new Date());
+        state.expandedDay = null;
         render();
       } else if (target.id === 'help-btn') {
         toggleIntro();
@@ -954,7 +993,8 @@ export function startApp(data, { onError } = {}) {
         history.replaceState(null, '', `#event=${target.dataset.event}`);
         openModal({ type: 'event', eventId: target.dataset.event, form: null });
       } else if (target.hasAttribute('data-close')) {
-        closeModal();
+        if (target.hasAttribute('data-discard')) closeModal();
+        else requestClose();
       } else if (target.dataset.openForm) {
         state.modal.form = { kind: target.dataset.openForm, slotId: target.dataset.slot || null };
         renderModal();
@@ -1048,11 +1088,11 @@ export function startApp(data, { onError } = {}) {
   });
 
   el.modalRoot.addEventListener('click', (domEvent) => {
-    if (domEvent.target === el.modalRoot) closeModal();
+    if (domEvent.target === el.modalRoot) requestClose();
   });
 
   document.addEventListener('keydown', (domEvent) => {
-    if (domEvent.key === 'Escape' && state.modal) closeModal();
+    if (domEvent.key === 'Escape' && state.modal) requestClose();
     else trapFocus(domEvent);
   });
 
@@ -1071,10 +1111,44 @@ export function startApp(data, { onError } = {}) {
     }, 150);
   });
 
-  // Someone else may have taken the last main dish while this tab sat open.
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && !state.loading) refresh().catch(() => {});
+  // Someone else may have signed up while this tab sat open. A quick glance at
+  // another app is not worth a reload, so only refresh after a while.
+  const STALE_AFTER_MS = 30_000;
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState !== 'visible' || state.loading) return;
+    if (Date.now() - state.loadedAt < STALE_AFTER_MS) return;
+    try {
+      await reload();
+      render();
+      // Redrawing the dialog would wipe anything half-typed — someone who
+      // switched apps to look up their address comes back to an empty form.
+      // A dialog with no form in it is safe to bring up to date.
+      const modal = state.modal;
+      if (modal?.type === 'event' && !modal.form) renderModal({ focus: false });
+    } catch {
+      /* the next action will surface the problem */
+    }
   });
+
+  // A link to another event pasted into this tab changes only the hash.
+  window.addEventListener('hashchange', () => {
+    openLinkedEvent().catch((err) => toast(err.message, 'error'));
+  });
+
+  async function openLinkedEvent() {
+    const deepLink = location.hash.match(/^#event=(.+)$/);
+    if (!deepLink) return;
+    const event = await findLinkedEvent(decodeURIComponent(deepLink[1]));
+    if (!event) {
+      history.replaceState(null, '', location.pathname + location.search);
+      render();
+      toast('That event is no longer on the calendar.', 'error');
+      return;
+    }
+    state.cursor = startOfMonth(parseISODate(event.date));
+    render();
+    openModal({ type: 'event', eventId: event.id, form: null });
+  }
 
   // --- boot ----------------------------------------------------------------
 
@@ -1083,17 +1157,9 @@ export function startApp(data, { onError } = {}) {
       state.viewer = await data.init();
       await reload();
       state.loading = false;
-      const deepLink = location.hash.match(/^#event=(.+)$/);
-      if (deepLink) {
-        const event = eventById(decodeURIComponent(deepLink[1]));
-        if (event) {
-          state.cursor = startOfMonth(parseISODate(event.date));
-          state.modal = { type: 'event', eventId: event.id, form: null };
-        }
-      }
       renderIntro();
       render();
-      renderModal();
+      await openLinkedEvent();
     } catch (err) {
       state.loading = false;
       if (onError) onError(err);
