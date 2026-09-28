@@ -125,4 +125,31 @@ describe('demo data source', () => {
     const all = await firstEvent();
     assert.equal(all.signups.find((s) => s.name === 'Marisol').contact, 'marisol@example.com');
   });
+
+  it('refuses a host on an event whose host is already arranged, as the database does', async () => {
+    const cookout = (await data.loadEvents()).find((e) => !e.needsHost);
+    await assert.rejects(
+      data.addSignup({ eventId: cookout.id, kind: 'host', name: 'Me' }),
+      /does not need a host/,
+    );
+  });
+
+  it('refuses food outside the slots when the organizer has turned that off', async () => {
+    await data.signIn('org@example.com', 'x');
+    const id = await data.saveEvent(
+      { title: 'Slots only', date: '2030-01-01', needsHost: false, hostLimit: 1, allowOtherFood: false },
+      [{ label: 'Main', needed: 1 }],
+    );
+    await assert.rejects(
+      data.addSignup({ eventId: id, kind: 'food', name: 'Me', item: 'Chips' }),
+      /listed food slots/,
+    );
+  });
+
+  it('loads only events from the given date on', async () => {
+    const all = await data.loadEvents();
+    const later = all[1].date;
+    const some = await data.loadEvents({ since: later });
+    assert.deepEqual(some.map((e) => e.date), [later]);
+  });
 });

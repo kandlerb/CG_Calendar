@@ -109,10 +109,10 @@ export function createDemoData() {
       return viewer;
     },
 
-    async loadEvents() {
+    async loadEvents({ since = null } = {}) {
       // Like the database, only organizers and the person who signed up see
       // a sign-up's contact details.
-      const events = structuredClone(state.events);
+      const events = structuredClone(state.events.filter((e) => !since || e.date >= since));
       for (const event of events) {
         for (const signup of event.signups) {
           if (!viewer.isOrganizer && signup.createdBy !== viewer.id) signup.contact = '';
@@ -159,6 +159,7 @@ export function createDemoData() {
       if (!event) throw new Error('That event no longer exists.');
 
       if (signup.kind === 'host') {
+        if (!event.needsHost) throw new Error('This event does not need a host.');
         const taken = event.signups.filter((s) => s.kind === 'host').length;
         if (taken >= event.hostLimit) throw new Error('Someone already signed up to host this event.');
       } else if (signup.slotId) {
@@ -166,6 +167,8 @@ export function createDemoData() {
         // being late, so there is nothing to refuse here.
         const slot = event.foodSlots.find((s) => s.id === signup.slotId);
         if (!slot) throw new Error('That food slot is no longer on this event.');
+      } else if (!event.allowOtherFood) {
+        throw new Error('Please choose one of the listed food slots.');
       }
 
       event.signups.push({
