@@ -48,7 +48,7 @@ function seed() {
             slotId: sides,
             kind: 'food',
             name: 'Marisol',
-            contact: '',
+            contact: 'marisol@example.com',
             item: 'Tres leches cake',
             note: '',
             createdBy: 'someone-else',
@@ -110,7 +110,15 @@ export function createDemoData() {
     },
 
     async loadEvents() {
-      return structuredClone(state.events);
+      // Like the database, only organizers and the person who signed up see
+      // a sign-up's contact details.
+      const events = structuredClone(state.events);
+      for (const event of events) {
+        for (const signup of event.signups) {
+          if (!viewer.isOrganizer && signup.createdBy !== viewer.id) signup.contact = '';
+        }
+      }
+      return events;
     },
 
     async saveEvent(event, slots) {

@@ -28,7 +28,8 @@ free tier is far more than a community group calendar will ever use.
 It also enforces the part that matters. The rules about **who may create
 events** live in the database (`supabase/schema.sql`), not in the browser.
 Someone poking at the page with developer tools still can't add an event, take
-a host spot that is gone, or attach a sign-up to another event's food slot.
+a host spot that is gone, attach a sign-up to another event's food slot, or
+read the phone numbers and emails people left for the organizers.
 
 ## Setting it up
 
@@ -38,7 +39,7 @@ About fifteen minutes, once.
 > Supabase project `CG_Calendar`: the tables, row level security and sign-up
 > trigger from `supabase/schema.sql` are applied, anonymous sign-ins are on,
 > Brian and Timothy are organizers, and `public/config.js` holds the project
-> URL and publishable key. Step 6 reports 8 of 8 passing.
+> URL and publishable key. Step 6 reports every check passing.
 >
 > The steps are kept for reference — follow them to point this calendar at a
 > different Supabase project, or to add another organizer (step 4).
@@ -142,6 +143,7 @@ group.
 | See the calendar and who signed up | yes | yes |
 | Sign up to host an event | yes | yes |
 | Sign up to bring food | yes | yes |
+| See a sign-up's phone or email | only their own | yes |
 | Edit or cancel **their own** sign-up | yes | yes |
 | Create, edit, or delete events | **no** | yes |
 | Remove anyone's sign-up | no | yes |
@@ -209,7 +211,8 @@ weekly won't hit that.
 ## What this is not
 
 The share link is unlisted, not secret. Anyone who has it can read the calendar
-and add a sign-up under any name — that's the trade-off that keeps it
+— names, dishes and notes, though not phone numbers or emails — and add a
+sign-up under any name — that's the trade-off that keeps it
 frictionless for a community group, but it means the calendar shouldn't hold
 anything you'd mind being forwarded. The restriction that *is* enforced is on
 events: creating, editing, and deleting them requires an organizer account, and

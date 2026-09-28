@@ -8,7 +8,11 @@
 
 import { normalizeTime } from './dates.js';
 
-function toEvent(row) {
+// Every column but "contact", which only organizers and the person who signed
+// up may read. Asking for it (or for *) is refused outright by the database.
+const SIGNUP_COLUMNS = 'id, event_id, slot_id, kind, name, item, note, created_by, created_at';
+
+function toEvent(row, contacts = new Map()) {
   return {
     id: row.id,
     title: row.title,
@@ -32,7 +36,7 @@ function toEvent(row) {
       slotId: signup.slot_id,
       kind: signup.kind,
       name: signup.name,
-      contact: signup.contact ?? '',
+      contact: contacts.get(signup.id) ?? '',
       item: signup.item ?? '',
       note: signup.note ?? '',
       createdBy: signup.created_by,
@@ -114,6 +118,18 @@ export function createSupabaseData(client) {
   }
 
   /**
+   * The contact details this viewer may see: their own, or everyone's for an
+   * organizer. They are extra detail, so a failure here leaves them out
+   * rather than stopping the calendar from loading.
+   */
+  async function loadContacts() {
+    if (!viewer) return new Map();
+    const { data, error } = await client.rpc('signup_contacts');
+    if (error) return new Map();
+    return new Map((data ?? []).map((row) => [row.signup_id, row.contact]));
+  }
+
+  /**
    * Replaces whatever session the browser holds. A visitor's anonymous
    * identity is disposable — a new one signs up just as well, and only the
    * "You" marker on earlier sign-ups is lost. An organizer's is not: turning
@@ -185,13 +201,14 @@ export function createSupabaseData(client) {
     },
 
     async loadEvents() {
-      const rows = unwrap(
-        await client
+      const [result, contacts] = await Promise.all([
+        client
           .from('events')
-          .select('*, food_slots(*), signups(*)')
+          .select(`*, food_slots(*), signups(${SIGNUP_COLUMNS})`)
           .order('event_date', { ascending: true }),
-      );
-      return rows.map(toEvent);
+        loadContacts(),
+      ]);
+      return unwrap(result).map((row) => toEvent(row, contacts));
     },
 
     async saveEvent(event, slots) {

@@ -131,10 +131,26 @@ alter table public.signups    enable row level security;
 revoke all on public.organizers, public.events, public.food_slots, public.signups
   from anon, authenticated;
 
-grant select on public.organizers, public.events, public.food_slots, public.signups
+grant select on public.organizers, public.events, public.food_slots
   to anon, authenticated;
-grant insert, update, delete on public.events, public.food_slots, public.signups
+grant insert, update, delete on public.events, public.food_slots
   to authenticated;
+
+-- Sign-ups are granted column by column.
+--
+-- Reading: everything but "contact". A phone number or email is for the
+-- organizers, not for everyone who has the link; signup_contacts() below hands
+-- it out to the people allowed to see it.
+--
+-- Changing: only what a person typed. The sign-up rules run when a sign-up is
+-- added, so if "kind", "event_id" or "slot_id" could be changed afterwards, a
+-- food sign-up could turn itself into a second host, move to an event that
+-- needs no host, or point at another event's food slot. Nothing in the app
+-- moves a sign-up; cancelling and signing up again goes back through the rules.
+grant select (id, event_id, slot_id, kind, name, item, note, created_by, created_at)
+  on public.signups to anon, authenticated;
+grant insert, delete on public.signups to authenticated;
+grant update (name, contact, item, note) on public.signups to authenticated;
 
 -- Your display name is yours to set. The grant names one column, so even with
 -- the policy below nobody can repoint their row at a different user_id.
@@ -189,6 +205,28 @@ create policy signups_update_own on public.signups
 drop policy if exists signups_delete_own on public.signups;
 create policy signups_delete_own on public.signups
   for delete using (created_by = auth.uid() or public.is_organizer());
+
+-- ---------------------------------------------------------------------------
+-- Contact details
+-- ---------------------------------------------------------------------------
+
+-- The "contact" column cannot be read directly (see the grants above). This
+-- returns it for your own sign-ups, and for everyone's if you are an organizer.
+create or replace function public.signup_contacts()
+returns table (signup_id uuid, contact text)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select s.id, s.contact
+    from public.signups s
+   where s.contact <> ''
+     and (s.created_by = auth.uid() or public.is_organizer());
+$$;
+
+revoke all on function public.signup_contacts() from public, anon, authenticated;
+grant execute on function public.signup_contacts() to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Sign-up rules the database enforces

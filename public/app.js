@@ -519,7 +519,7 @@ export function startApp(data, { onError } = {}) {
           <input id="su-name" name="name" value="${esc(remembered.read(NAME_KEY))}" data-autofocus required />
         </div>
         <div class="field">
-          <label for="su-contact">Phone or email <span class="help">(optional)</span></label>
+          <label for="su-contact">Phone or email <span class="help">(optional, organizers only)</span></label>
           <input id="su-contact" name="contact" value="${esc(remembered.read(CONTACT_KEY))}" />
         </div>
       </div>
@@ -537,7 +537,8 @@ export function startApp(data, { onError } = {}) {
           kind === 'host' ? 'Address, parking notes…' : 'Gluten free, needs oven space…',
         )}" />
       </div>
-      <p class="hint">Your name and note are visible to anyone with the link. No email is sent.</p>
+      <p class="hint">Your name, what you bring and your note are visible to anyone with the link. Your phone or
+        email is shown only to the organizers. No email is sent.</p>
       <p class="error" data-error hidden></p>
       <div class="form-actions">
         <button type="submit" class="btn primary">${kind === 'host' ? 'Sign up to host' : 'Add sign-up'}</button>

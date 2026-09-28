@@ -110,4 +110,19 @@ describe('demo data source', () => {
     event.title = 'Mutated';
     assert.notEqual((await firstEvent()).title, 'Mutated');
   });
+
+  it('shows a contact only to the person who signed up and to organizers', async () => {
+    const event = await firstEvent();
+    await data.addSignup({ eventId: event.id, kind: 'food', name: 'Me', item: 'Pie', contact: '555-0100' });
+    const mine = (await firstEvent()).signups.find((s) => s.name === 'Me');
+    assert.equal(mine.contact, '555-0100');
+
+    // Marisol's sign-up was made in another browser, and she left an email.
+    const others = (await firstEvent()).signups.find((s) => s.name === 'Marisol');
+    assert.equal(others.contact, '');
+
+    await data.signIn('org@example.com', 'x');
+    const all = await firstEvent();
+    assert.equal(all.signups.find((s) => s.name === 'Marisol').contact, 'marisol@example.com');
+  });
 });
