@@ -156,17 +156,20 @@ grant update (name, contact, item, note) on public.signups to authenticated;
 -- the policy below nobody can repoint their row at a different user_id.
 grant update (name) on public.organizers to authenticated;
 
+-- auth.uid() and is_organizer() are wrapped in (select …) throughout, so
+-- Postgres works each out once per statement rather than once per row.
+
 -- Organizers: you may see your own row, and nothing else. Membership is
 -- managed from the dashboard, not from the app; your display name is not.
 drop policy if exists organizers_read_self on public.organizers;
 create policy organizers_read_self on public.organizers
-  for select using (user_id = auth.uid());
+  for select using (user_id = (select auth.uid()));
 
 -- Being an organizer is granted from the dashboard, but what the header calls
 -- you is only a label — so you may change your own, and nobody else's.
 drop policy if exists organizers_rename_self on public.organizers;
 create policy organizers_rename_self on public.organizers
-  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+  for update using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 
 -- Events and their food slots: anyone with the link may read them; only
 -- organizers may write them.
@@ -176,7 +179,7 @@ create policy events_read_all on public.events
 
 drop policy if exists events_write_organizers on public.events;
 create policy events_write_organizers on public.events
-  for all using (public.is_organizer()) with check (public.is_organizer());
+  for all using ((select public.is_organizer())) with check ((select public.is_organizer()));
 
 drop policy if exists food_slots_read_all on public.food_slots;
 create policy food_slots_read_all on public.food_slots
@@ -184,7 +187,7 @@ create policy food_slots_read_all on public.food_slots
 
 drop policy if exists food_slots_write_organizers on public.food_slots;
 create policy food_slots_write_organizers on public.food_slots
-  for all using (public.is_organizer()) with check (public.is_organizer());
+  for all using ((select public.is_organizer())) with check ((select public.is_organizer()));
 
 -- Sign-ups: anyone may read them and add their own. You may change or remove
 -- only the ones you created — unless you are an organizer, who may tidy up
@@ -195,16 +198,16 @@ create policy signups_read_all on public.signups
 
 drop policy if exists signups_insert_own on public.signups;
 create policy signups_insert_own on public.signups
-  for insert with check (created_by = auth.uid());
+  for insert with check (created_by = (select auth.uid()));
 
 drop policy if exists signups_update_own on public.signups;
 create policy signups_update_own on public.signups
-  for update using (created_by = auth.uid() or public.is_organizer())
-  with check (created_by = auth.uid() or public.is_organizer());
+  for update using (created_by = (select auth.uid()) or (select public.is_organizer()))
+  with check (created_by = (select auth.uid()) or (select public.is_organizer()));
 
 drop policy if exists signups_delete_own on public.signups;
 create policy signups_delete_own on public.signups
-  for delete using (created_by = auth.uid() or public.is_organizer());
+  for delete using (created_by = (select auth.uid()) or (select public.is_organizer()));
 
 -- ---------------------------------------------------------------------------
 -- Contact details

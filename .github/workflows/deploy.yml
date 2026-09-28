@@ -1,7 +1,12 @@
 name: Deploy to GitHub Pages
 
+# Publishes only after the Tests workflow has passed on a push to main, so a
+# change that breaks the page or the rules never reaches the group. A manual
+# run skips that wait.
 on:
-  push:
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -17,12 +22,18 @@ concurrency:
 
 jobs:
   deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # The commit the tests passed on, not whatever main has moved to since.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       # No enablement flag: creating a Pages site needs repository admin
       # rights, which GITHUB_TOKEN does not have and `permissions` cannot
       # grant. Pages has to be switched on once by hand — see the README.
