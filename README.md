@@ -131,8 +131,9 @@ Get Pages site failed. Error: Not Found
 Create Pages site failed. Error: Resource not accessible by integration
 ```
 
-Once it's set, push to `main` (or re-run the deploy workflow). It publishes
-`public/` and prints the URL in the Actions log — usually
+Once it's set, push to `main` (or run the deploy workflow by hand). The deploy
+waits for the Tests workflow to pass on that commit, then publishes `public/`
+and prints the URL in the Actions log — usually
 `https://kandlerb.github.io/CG_Calendar/`. That's the link you send your
 group.
 
@@ -201,6 +202,24 @@ session and then quietly sends the public key instead of the visitor's token.
 The page checks for that before every write, starts a fresh anonymous session
 if needed, and retries once; if it still fails, the visitor is told to reload.
 
+**Anonymous visitors pile up** under **Authentication → Users**, one per
+browser that has opened the calendar. That is harmless, but if you ever clear
+them out, know that deleting a user **also deletes every sign-up they made**
+(`signups.created_by … on delete cascade`). Only remove anonymous users whose
+events are over, for example:
+
+```sql
+delete from auth.users u
+ where u.is_anonymous
+   and not exists (
+     select 1 from public.signups s join public.events e on e.id = s.event_id
+      where s.created_by = u.id and e.event_date >= current_date);
+```
+
+**Updating the database rules**: re-run the whole of `supabase/schema.sql` in
+the SQL editor; it is safe to run again. If a change to the rules comes with a
+change to the page, let the new page deploy first, then run the SQL.
+
 **Backups**: Supabase's dashboard has **Database → Backups**. For a copy you
 hold yourself, the table editor exports any table to CSV.
 
@@ -221,8 +240,9 @@ the database checks that on every request.
 ## Development
 
 ```bash
-npm test             # unit tests for the date and model logic (no dependencies)
+npm test             # unit tests for the date, model, form and data logic (no dependencies)
 npm run test:schema  # applies schema.sql to a scratch database and tests the rules
+npm run test:e2e     # drives demo.html in Chromium (npm install first)
 npm run serve        # serves public/ at http://localhost:8000
 node scripts/verify-supabase.mjs <url> <anon-key> [email] [password]   # checks a live project
 ```
@@ -232,6 +252,11 @@ node scripts/verify-supabase.mjs <url> <anon-key> [email] [password]   # checks 
 checks the security rules hold — that a participant can't create an event,
 can't edit someone else's sign-up, can't post as someone else, and can't take a
 slot belonging to a different event. CI runs both on every push.
+
+`npm run test:e2e` needs `npm install` and a Playwright Chromium
+(`npx playwright install chromium`). It clicks through `demo.html` the way a
+visitor and an organizer would: signing up, editing events, following links,
+and checking that nothing half-typed is lost.
 
 ## Layout
 
@@ -243,11 +268,13 @@ public/                the website — this is what GitHub Pages serves
   app.js               all the page's behaviour
   lib/dates.js         calendar maths
   lib/model.js         turning rows into what's on screen
+  lib/forms.js         checking what was typed before it is saved
   lib/supabase-data.js everything that talks to Supabase
   lib/demo-data.js     the stand-in used by demo.html
 supabase/schema.sql    tables, row level security, sign-up rules
 supabase/tests/        those rules, tested against a real PostgreSQL
 test/                  unit tests for the browser modules
+e2e/                   browser tests, run against demo.html
 scripts/test-schema.sh runs the schema tests
 scripts/verify-supabase.mjs checks a live Supabase project is set up right
 ```
