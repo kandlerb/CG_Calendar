@@ -131,11 +131,12 @@ Get Pages site failed. Error: Not Found
 Create Pages site failed. Error: Resource not accessible by integration
 ```
 
-Once it's set, push to `main` (or run the deploy workflow by hand). The deploy
-waits for the Tests workflow to pass on that commit, then publishes `public/`
-and prints the URL in the Actions log — usually
+Once it's set, push to `main`. The Tests workflow runs every test and, only
+if they all pass, its last job publishes `public/` and prints the URL in the
+Actions log — usually
 `https://kandlerb.github.io/CG_Calendar/`. That's the link you send your
-group.
+group. (**Actions → Deploy to GitHub Pages → Run workflow** redeploys by hand,
+without waiting for tests.)
 
 ## Who can do what
 
