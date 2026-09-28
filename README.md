@@ -28,7 +28,8 @@ free tier is far more than a community group calendar will ever use.
 It also enforces the part that matters. The rules about **who may create
 events** live in the database (`supabase/schema.sql`), not in the browser.
 Someone poking at the page with developer tools still can't add an event, take
-a host spot that is gone, or attach a sign-up to another event's food slot.
+a host spot that is gone, attach a sign-up to another event's food slot, or
+read the phone numbers and emails people left for the organizers.
 
 ## Setting it up
 
@@ -38,7 +39,7 @@ About fifteen minutes, once.
 > Supabase project `CG_Calendar`: the tables, row level security and sign-up
 > trigger from `supabase/schema.sql` are applied, anonymous sign-ins are on,
 > Brian and Timothy are organizers, and `public/config.js` holds the project
-> URL and publishable key. Step 6 reports 8 of 8 passing.
+> URL and publishable key. Step 6 reports every check passing.
 >
 > The steps are kept for reference — follow them to point this calendar at a
 > different Supabase project, or to add another organizer (step 4).
@@ -130,8 +131,9 @@ Get Pages site failed. Error: Not Found
 Create Pages site failed. Error: Resource not accessible by integration
 ```
 
-Once it's set, push to `main` (or re-run the deploy workflow). It publishes
-`public/` and prints the URL in the Actions log — usually
+Once it's set, push to `main` (or run the deploy workflow by hand). The deploy
+waits for the Tests workflow to pass on that commit, then publishes `public/`
+and prints the URL in the Actions log — usually
 `https://kandlerb.github.io/CG_Calendar/`. That's the link you send your
 group.
 
@@ -142,6 +144,7 @@ group.
 | See the calendar and who signed up | yes | yes |
 | Sign up to host an event | yes | yes |
 | Sign up to bring food | yes | yes |
+| See a sign-up's phone or email | only their own | yes |
 | Edit or cancel **their own** sign-up | yes | yes |
 | Create, edit, or delete events | **no** | yes |
 | Remove anyone's sign-up | no | yes |
@@ -199,6 +202,24 @@ session and then quietly sends the public key instead of the visitor's token.
 The page checks for that before every write, starts a fresh anonymous session
 if needed, and retries once; if it still fails, the visitor is told to reload.
 
+**Anonymous visitors pile up** under **Authentication → Users**, one per
+browser that has opened the calendar. That is harmless, but if you ever clear
+them out, know that deleting a user **also deletes every sign-up they made**
+(`signups.created_by … on delete cascade`). Only remove anonymous users whose
+events are over, for example:
+
+```sql
+delete from auth.users u
+ where u.is_anonymous
+   and not exists (
+     select 1 from public.signups s join public.events e on e.id = s.event_id
+      where s.created_by = u.id and e.event_date >= current_date);
+```
+
+**Updating the database rules**: re-run the whole of `supabase/schema.sql` in
+the SQL editor; it is safe to run again. If a change to the rules comes with a
+change to the page, let the new page deploy first, then run the SQL.
+
 **Backups**: Supabase's dashboard has **Database → Backups**. For a copy you
 hold yourself, the table editor exports any table to CSV.
 
@@ -209,7 +230,8 @@ weekly won't hit that.
 ## What this is not
 
 The share link is unlisted, not secret. Anyone who has it can read the calendar
-and add a sign-up under any name — that's the trade-off that keeps it
+— names, dishes and notes, though not phone numbers or emails — and add a
+sign-up under any name — that's the trade-off that keeps it
 frictionless for a community group, but it means the calendar shouldn't hold
 anything you'd mind being forwarded. The restriction that *is* enforced is on
 events: creating, editing, and deleting them requires an organizer account, and
@@ -218,8 +240,9 @@ the database checks that on every request.
 ## Development
 
 ```bash
-npm test             # unit tests for the date and model logic (no dependencies)
+npm test             # unit tests for the date, model, form and data logic (no dependencies)
 npm run test:schema  # applies schema.sql to a scratch database and tests the rules
+npm run test:e2e     # drives demo.html in Chromium (npm install first)
 npm run serve        # serves public/ at http://localhost:8000
 node scripts/verify-supabase.mjs <url> <anon-key> [email] [password]   # checks a live project
 ```
@@ -229,6 +252,11 @@ node scripts/verify-supabase.mjs <url> <anon-key> [email] [password]   # checks 
 checks the security rules hold — that a participant can't create an event,
 can't edit someone else's sign-up, can't post as someone else, and can't take a
 slot belonging to a different event. CI runs both on every push.
+
+`npm run test:e2e` needs `npm install` and a Playwright Chromium
+(`npx playwright install chromium`). It clicks through `demo.html` the way a
+visitor and an organizer would: signing up, editing events, following links,
+and checking that nothing half-typed is lost.
 
 ## Layout
 
@@ -240,11 +268,13 @@ public/                the website — this is what GitHub Pages serves
   app.js               all the page's behaviour
   lib/dates.js         calendar maths
   lib/model.js         turning rows into what's on screen
+  lib/forms.js         checking what was typed before it is saved
   lib/supabase-data.js everything that talks to Supabase
   lib/demo-data.js     the stand-in used by demo.html
 supabase/schema.sql    tables, row level security, sign-up rules
 supabase/tests/        those rules, tested against a real PostgreSQL
 test/                  unit tests for the browser modules
+e2e/                   browser tests, run against demo.html
 scripts/test-schema.sh runs the schema tests
 scripts/verify-supabase.mjs checks a live Supabase project is set up right
 ```

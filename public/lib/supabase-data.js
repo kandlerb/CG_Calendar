@@ -8,7 +8,11 @@
 
 import { normalizeTime } from './dates.js';
 
-function toEvent(row) {
+// Every column but "contact", which only organizers and the person who signed
+// up may read. Asking for it (or for *) is refused outright by the database.
+const SIGNUP_COLUMNS = 'id, event_id, slot_id, kind, name, item, note, created_by, created_at';
+
+function toEvent(row, contacts = new Map()) {
   return {
     id: row.id,
     title: row.title,
@@ -32,7 +36,7 @@ function toEvent(row) {
       slotId: signup.slot_id,
       kind: signup.kind,
       name: signup.name,
-      contact: signup.contact ?? '',
+      contact: contacts.get(signup.id) ?? '',
       item: signup.item ?? '',
       note: signup.note ?? '',
       createdBy: signup.created_by,
@@ -66,6 +70,29 @@ function describe(error) {
     .trim();
 }
 
+/**
+ * Saying "wrong password" for every failure sends people to retype a
+ * password that was right all along.
+ */
+function describeSignInError(error) {
+  const code = error?.code ?? '';
+  const message = error?.message ?? '';
+  if (code === 'invalid_credentials' || /invalid login credentials/i.test(message)) {
+    return 'That email and password did not match.';
+  }
+  if (code === 'email_not_confirmed' || /email not confirmed/i.test(message)) {
+    return 'This account has not been confirmed yet. In Supabase, open Authentication → Users and ' +
+      'confirm it, or add it again with Auto Confirm User ticked.';
+  }
+  if (error?.status === 429 || /rate.?limit/i.test(code) || /rate limit/i.test(message)) {
+    return 'Too many sign-in attempts. Wait a minute and try again.';
+  }
+  if (!error?.status || /fetch|network/i.test(message)) {
+    return 'Could not reach the sign-in service. Check your connection and try again.';
+  }
+  return `Could not sign in: ${message}`;
+}
+
 function unwrap({ data, error }) {
   if (error) throw new Error(describe(error));
   return data;
@@ -79,11 +106,14 @@ export function createSupabaseData(client) {
       viewer = null;
       return viewer;
     }
-    const { data } = await client
+    const { data, error } = await client
       .from('organizers')
       .select('name')
       .eq('user_id', session.user.id)
       .maybeSingle();
+    // A lookup that failed is not an answer. Reading it as "not an organizer"
+    // would sign a real organizer out and tell them they were never one.
+    if (error) throw new Error(`Could not check who you are signed in as: ${describe(error)}`);
     viewer = {
       id: session.user.id,
       email: session.user.email ?? '',
@@ -111,6 +141,18 @@ export function createSupabaseData(client) {
       );
     }
     return result.data.session;
+  }
+
+  /**
+   * The contact details this viewer may see: their own, or everyone's for an
+   * organizer. They are extra detail, so a failure here leaves them out
+   * rather than stopping the calendar from loading.
+   */
+  async function loadContacts() {
+    if (!viewer) return new Map();
+    const { data, error } = await client.rpc('signup_contacts');
+    if (error) return new Map();
+    return new Map((data ?? []).map((row) => [row.signup_id, row.contact]));
   }
 
   /**
@@ -156,7 +198,7 @@ export function createSupabaseData(client) {
 
     async signIn(email, password) {
       const { data, error } = await client.auth.signInWithPassword({ email, password });
-      if (error) throw new Error('That email and password did not match.');
+      if (error) throw new Error(describeSignInError(error));
       const next = await refreshViewer(data.session);
       if (!next.isOrganizer) {
         await client.auth.signOut();
@@ -184,14 +226,20 @@ export function createSupabaseData(client) {
       return viewer;
     },
 
-    async loadEvents() {
-      const rows = unwrap(
-        await client
-          .from('events')
-          .select('*, food_slots(*), signups(*)')
-          .order('event_date', { ascending: true }),
-      );
-      return rows.map(toEvent);
+    /**
+     * Events on or after `since` (an ISO date), or every event when it is
+     * empty. Sign-ups come back in the order people made them, so the names
+     * under a slot do not shuffle between reloads.
+     */
+    async loadEvents({ since = null } = {}) {
+      let query = client
+        .from('events')
+        .select(`*, food_slots(*), signups(${SIGNUP_COLUMNS})`)
+        .order('event_date', { ascending: true })
+        .order('created_at', { referencedTable: 'signups', ascending: true });
+      if (since) query = query.gte('event_date', since);
+      const [result, contacts] = await Promise.all([query, loadContacts()]);
+      return unwrap(result).map((row) => toEvent(row, contacts));
     },
 
     async saveEvent(event, slots) {

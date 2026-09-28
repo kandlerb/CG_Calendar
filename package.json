@@ -10,7 +10,11 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "test:schema": "./scripts/test-schema.sh",
-    "serve": "python3 -m http.server 8000 --directory public"
+    "serve": "python3 -m http.server 8000 --directory public",
+    "test:e2e": "playwright test"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
+  }
 }

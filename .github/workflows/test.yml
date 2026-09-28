@@ -18,8 +18,28 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-      # The site has no dependencies, so there is nothing to install.
+      # The unit tests use only node:test, so there is nothing to install.
       - run: npm test
+
+  e2e:
+    name: browser (demo page)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      # Playwright is the only dependency, and only the tests use it.
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7
 
   schema:
     name: schema (postgres)
