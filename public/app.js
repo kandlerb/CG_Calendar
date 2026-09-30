@@ -1139,7 +1139,7 @@ export function startApp(data, { onError } = {}) {
           ? `<div class="field">
               <label for="su-address">Address <span class="help">(optional)</span></label>
               <input id="su-address" name="address" maxlength="${LIMITS.address}" autocomplete="street-address"
-                     value="${value('address')}" placeholder="e.g. 12 Oak St, Augusta, GA 30901" />
+                     value="${value('address')}" placeholder="12 Oak St, Augusta, GA" />
               <span class="help">A full street address shows on the map in everyone's calendar.</span>
             </div>`
           : ''
@@ -1147,7 +1147,7 @@ export function startApp(data, { onError } = {}) {
       <div class="field">
         <label for="su-note">Note <span class="help">(optional)</span></label>
         <input id="su-note" name="note" maxlength="${LIMITS.note}" value="${value('note')}" placeholder="${
-          host ? 'Parking, which door to use…' : 'Gluten free, needs oven space…'
+          host ? 'Parking, side door…' : 'Gluten free, needs oven…'
         }" />
       </div>
       <p class="hint">Everyone in the group can see your sign-up${

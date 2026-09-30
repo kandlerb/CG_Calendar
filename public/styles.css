@@ -1014,6 +1014,11 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .steps a { color: var(--accent); }
 .section p.hint .btn.link { font-size: 13px; }
 .subscribe-body { margin-top: 10px; }
+.subscribe-body .hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+.subscribe-body .form-actions { margin: 4px 0 10px; }
+@media (max-width: 520px) {
+  .subscribe-body .form-actions > .btn { flex: 1 1 100%; justify-content: center; text-align: center; }
+}
 
 /* --- the menu button ---
    Below 900px the header buttons fold into a menu behind ☰, so the bar stays
@@ -1089,4 +1094,10 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 }
 @media (max-width: 350px) {
   .topbar h1 { font-size: 13.5px; }
+}
+
+/* The sign-in tabs stay one line each on the narrowest phones. */
+@media (max-width: 360px) {
+  .gate-card { padding: var(--space-4); }
+  .gate-tabs .btn { white-space: nowrap; padding-left: var(--space-2); padding-right: var(--space-2); font-size: 14px; }
 }

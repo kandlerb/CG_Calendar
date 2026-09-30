@@ -503,3 +503,39 @@ test('on a phone the header buttons sit behind a menu button', async ({ page }) 
   await page.keyboard.press('Escape');
   await expect(page.locator('#signout-btn')).toBeHidden();
 });
+
+test('dialogs fit a small phone screen', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.goto('/demo.html');
+  const fits = () =>
+    page.evaluate(() => {
+      const modal = document.querySelector('.modal').getBoundingClientRect();
+      const inside = [...document.querySelectorAll('.modal *')].every(
+        (n) => !n.offsetParent || n.getBoundingClientRect().right <= modal.right + 0.5,
+      );
+      return modal.left >= 0 && modal.right <= innerWidth && inside;
+    });
+
+  await page.evaluate((id) => (location.hash = `event=${id}`), DINNER);
+  await dialog(page).getByRole('button', { name: 'Sign up to host' }).click();
+  expect(await fits()).toBe(true);
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: 'Menu' }).click();
+  await page.locator('#subscribe-btn').click();
+  expect(await fits()).toBe(true);
+  await page.keyboard.press('Escape');
+
+  await signInAsOrganizerFromMenu(page);
+  await page.locator('#new-event-btn').click();
+  expect(await fits()).toBe(true);
+});
+
+async function signInAsOrganizerFromMenu(page) {
+  await page.getByRole('button', { name: 'Menu' }).click();
+  await page.locator('#signout-btn').click();
+  await page.getByLabel('Email').fill('org@example.com');
+  await page.getByLabel('Password').fill('anything');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.locator('#new-event-btn')).toBeVisible();
+}
