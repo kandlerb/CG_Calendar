@@ -1,10 +1,12 @@
 // The calendar in a real browser, on the demo's in-memory data. The demo
 // seeds "Community Group — Week 1" (needs a host; Main dish, Side dish with
-// Marisol's tres leches cake, Dessert) and "Fall Cookout" (host arranged).
+// Marisol's elote salad, Dessert), "Fall Cookout" (host arranged) and, a week
+// ago, "Community Group — Week 0".
 import { expect, test } from '@playwright/test';
 
 const DINNER = 'demo-event-dinner';
 const COOKOUT = 'demo-event-cookout';
+const LAST_WEEK = 'demo-event-last-week';
 
 const dialog = (page) => page.locator('.modal');
 const slotGroup = (page, label) =>
@@ -186,4 +188,81 @@ test('an Upcoming card opens its event from anywhere on it, and its title is the
   // location text itself to be clickable.
   await page.locator('.agenda-card', { hasText: 'Fall Cookout' }).locator('.where').click({ force: true });
   await expect(dialog(page).locator('#modal-title')).toHaveText('Fall Cookout');
+});
+
+test("the host's address becomes the event's location", async ({ page }) => {
+  await openEvent(page, DINNER);
+  await expect(dialog(page).locator('.modal-head')).toContainText('the host gives it when they sign up');
+  await dialog(page).getByRole('button', { name: 'Sign up to host' }).click();
+  await page.getByLabel('Your name').fill('Jordan');
+  await page.getByLabel('Address').fill('12 Elm St');
+  await dialog(page).locator('form').getByRole('button', { name: 'Sign up to host' }).click();
+  await expect(dialog(page).locator('.modal-head .where')).toHaveText('12 Elm St · hosted by Jordan');
+
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Upcoming' }).click();
+  const card = page.locator('.agenda-card').filter({ hasText: 'Week 1' });
+  await expect(card.locator('.where')).toHaveText('12 Elm St');
+});
+
+test('a visitor can change what their own sign-up says', async ({ page }) => {
+  await openEvent(page, DINNER);
+  await slotGroup(page, 'Main dish').getByRole('button', { name: 'Sign up' }).click();
+  await page.getByLabel('Your name').fill('Jordan');
+  await page.getByLabel('What you will bring').fill('Lasagna');
+  await page.getByRole('button', { name: 'Add sign-up' }).click();
+
+  await slotGroup(page, 'Main dish').getByRole('button', { name: "Edit Jordan's sign-up" }).click();
+  await expect(page.getByLabel('What you will bring')).toHaveValue('Lasagna');
+  await page.getByLabel('What you will bring').fill('Chili');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(slotGroup(page, 'Main dish').locator('.person.mine')).toContainText('Chili');
+  // Someone else's sign-up has no Edit for a visitor.
+  await expect(slotGroup(page, 'Side dish').getByRole('button', { name: /Edit/ })).toHaveCount(0);
+});
+
+test('a past event can be read but not signed up for', async ({ page }) => {
+  await page.goto('/demo.html');
+  await page.getByRole('button', { name: 'Upcoming' }).click();
+  await expect(page.locator('.agenda-card').filter({ hasText: 'Week 0' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Show past events' }).click();
+  await page.locator('.agenda-card').filter({ hasText: 'Week 0' }).getByRole('button').click();
+
+  await expect(dialog(page).locator('.summary')).toHaveText('This event has passed.');
+  await expect(dialog(page)).toContainText('418 Walton Way');
+  await expect(dialog(page).locator('[data-open-form]')).toHaveCount(0);
+  await expect(dialog(page).locator('[data-cancel-signup]')).toHaveCount(0);
+});
+
+test('removing a slot people signed up for asks first', async ({ page }) => {
+  await signInAsOrganizer(page);
+  await openEvent(page, DINNER);
+  await page.getByRole('button', { name: 'Edit event' }).click();
+  await dialog(page)
+    .locator('[data-slot-row]')
+    .filter({ has: page.locator('input[value="Side dish"]') })
+    .getByRole('button', { name: 'Remove this slot' })
+    .click();
+
+  let message = '';
+  page.once('dialog', (d) => {
+    message = d.message();
+    d.dismiss();
+  });
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  expect(message).toContain('Side dish (Marisol)');
+  // Backing out leaves the form open and usable.
+  await expect(page.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(dialog(page)).toContainText('Other food:');
+  await expect(dialog(page)).toContainText('Marisol');
+});
+
+test('the month grid explains its colours', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 850 });
+  await page.goto('/demo.html');
+  await page.getByRole('button', { name: 'Month', exact: true }).click();
+  await expect(page.locator('.legend')).toContainText('Needs a host');
 });

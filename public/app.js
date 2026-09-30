@@ -19,6 +19,7 @@ import {
   foodStillNeeded,
   groupByDate,
   nextEvent,
+  past,
   shapeEvents,
   upcoming,
 } from './lib/model.js';
@@ -82,6 +83,7 @@ export function startApp(data, { onError } = {}) {
     since: loadWindowStart(new Date()),
     loadedAt: 0,
     expandedDay: null,
+    showPast: false,
     modal: null,
   };
 
@@ -101,6 +103,7 @@ export function startApp(data, { onError } = {}) {
     signOut: document.getElementById('signout-btn'),
     newEvent: document.getElementById('new-event-btn'),
     help: document.getElementById('help-btn'),
+    divider: document.querySelector('.topbar-divider'),
   };
 
   let toastTimer;
@@ -123,6 +126,7 @@ export function startApp(data, { onError } = {}) {
     state.events = shapeEvents(raw, {
       userId: state.viewer?.id ?? null,
       isOrganizer: Boolean(state.viewer?.isOrganizer),
+      todayKey: isoDate(new Date()),
     });
   }
 
@@ -212,6 +216,7 @@ export function startApp(data, { onError } = {}) {
     el.signOut.hidden = !organizer;
     el.newEvent.hidden = !organizer;
     el.signIn.hidden = organizer;
+    if (el.divider) el.divider.hidden = !organizer;
   }
 
   function render() {
@@ -291,19 +296,23 @@ export function startApp(data, { onError } = {}) {
   }
 
   function chipHtml(event) {
-    const wanted = event.needsHost && event.hostSpotsLeft > 0;
+    const wanted = !event.past && event.needsHost && event.hostSpotsLeft > 0;
     const time = event.startTime ? formatTime(event.startTime) : 'TBD';
-    // A cell is only so wide, so the row is one line and the detail moves into
-    // the tooltip and the dot colour.
-    const tip = [`${event.title}, ${time}`, wanted ? 'Needs a host.' : '']
-      .filter(Boolean)
-      .join(' ');
+    // A cell is only so wide, so the row is one line; the dot colour carries
+    // the host status, and the key under the grid says what it means.
+    const status = [
+      event.past ? 'Past event.' : '',
+      wanted ? 'Needs a host.' : '',
+      event.mine.length ? 'You signed up.' : '',
+    ].filter(Boolean);
+    const tip = [`${event.title}, ${time}`, event.where, ...status].filter(Boolean).join('. ');
     return `<button type="button" class="chip${wanted ? ' needs-host' : ''}${
       event.mine.length ? ' mine' : ''
-    }" data-event="${esc(event.id)}" title="${esc(tip)}">
+    }${event.past ? ' past' : ''}" data-event="${esc(event.id)}" title="${esc(tip)}">
       <span class="dot" aria-hidden="true"></span>
       <span class="chip-time">${esc(time)}</span>
       <span class="chip-title">${esc(event.title)}</span>
+      ${status.length ? `<span class="sr-only">${esc(status.join(' '))}</span>` : ''}
     </button>`;
   }
 
@@ -344,36 +353,62 @@ export function startApp(data, { onError } = {}) {
       }
       html += '</div>';
     }
+    // A touch screen has no tooltip, so the dot colours need a key.
+    html += `<div class="legend" aria-hidden="true">
+      <span><span class="swatch needs-host"><span class="dot"></span></span>Needs a host</span>
+      <span><span class="swatch"><span class="dot"></span></span>Host set</span>
+      <span><span class="swatch mine"></span>You signed up</span>
+    </div>`;
     el.calendar.innerHTML = html;
   }
 
+  // The title is the button; its ::after stretches over the whole card so
+  // the card still opens from anywhere, without a heading, paragraphs and
+  // badges all being read out as one button's name.
+  function agendaCardHtml(event) {
+    return `<article class="agenda-card${event.past ? ' past' : ''}">
+      <p class="when">${esc(formatLongDate(event.date))} · ${esc(formatTimeRange(event))}</p>
+      <h3><button type="button" class="agenda-open" data-event="${esc(event.id)}">${esc(event.title)}</button></h3>
+      ${event.where ? `<p class="where">${esc(event.where)}</p>` : ''}
+      ${badgeHtml(eventBadges(event))}
+      <span class="agenda-cue" aria-hidden="true">${event.past ? 'See who came →' : 'Open to sign up →'}</span>
+    </article>`;
+  }
+
   function renderAgenda() {
-    const list = upcoming(state.events, isoDate(new Date()));
-    if (!list.length) {
-      el.agenda.innerHTML = `<p class="empty">
-        <strong>No upcoming events.</strong><br />
-        ${
-          state.viewer?.isOrganizer
-            ? 'Use “+ New event” to add one.'
-            : 'Only an organizer can add them.'
-        }
-      </p>`;
-      return;
-    }
-    el.agenda.innerHTML = list
-      .map(
-        // The title is the button; its ::after stretches over the whole card so
-        // the card still opens from anywhere, without a heading, paragraphs
-        // and badges all being read out as one button's name.
-        (event) => `<article class="agenda-card">
-          <p class="when">${esc(formatLongDate(event.date))} · ${esc(formatTimeRange(event))}</p>
-          <h3><button type="button" class="agenda-open" data-event="${esc(event.id)}">${esc(event.title)}</button></h3>
-          ${event.location ? `<p class="where">${esc(event.location)}</p>` : ''}
-          ${badgeHtml(eventBadges(event))}
-          <span class="agenda-cue" aria-hidden="true">Open to sign up →</span>
-        </article>`,
-      )
-      .join('');
+    const todayKey = isoDate(new Date());
+    const list = upcoming(state.events, todayKey);
+    const earlier = past(state.events, todayKey);
+    const cards = list.length
+      ? list.map(agendaCardHtml).join('')
+      : `<p class="empty">
+          <strong>No upcoming events.</strong><br />
+          ${
+            state.viewer?.isOrganizer
+              ? 'Use “+ New event” to add one.'
+              : 'Only an organizer can add them.'
+          }
+        </p>`;
+    // Past events stay out of the way, but someone checking who brought what
+    // last week should not have to switch to the month grid to find it. Older
+    // months may not be loaded yet, so the button is offered either way.
+    const canLoadMore = Boolean(state.since);
+    const pastPart =
+      earlier.length || canLoadMore
+        ? `<button type="button" class="btn link past-toggle" data-toggle-past aria-expanded="${state.showPast}">${
+            state.showPast ? 'Hide past events' : 'Show past events'
+          }</button>
+           ${
+             state.showPast
+               ? `<h2 class="agenda-heading">Past events</h2>${
+                   earlier.length
+                     ? earlier.map(agendaCardHtml).join('')
+                     : '<p class="empty">No past events.</p>'
+                 }`
+               : ''
+           }`
+        : '';
+    el.agenda.innerHTML = cards + pastPart;
   }
 
   // --- modals --------------------------------------------------------------
@@ -415,6 +450,9 @@ export function startApp(data, { onError } = {}) {
 
   function openModal(modal) {
     if (!state.modal) returnFocusTo = focusAnchor(document.activeElement);
+    // A message about the last thing done should not sit over the next form.
+    clearTimeout(toastTimer);
+    el.toast.hidden = true;
     state.modal = modal;
     renderModal();
   }
@@ -533,68 +571,96 @@ export function startApp(data, { onError } = {}) {
       </form>`;
   }
 
-  function signupLine(signup, { nested = false } = {}) {
+  function signupLine(signup, { nested = false, modal = null, slotLabel = '' } = {}) {
+    // Editing happens in place: the line becomes the form.
+    if (modal?.form?.editId === signup.id) {
+      return signupFormHtml({ kind: signup.kind, slotId: signup.slotId ?? '', slotLabel, signup });
+    }
     const details = [signup.item, signup.note].filter(Boolean).join(' — ');
+    // Only organizers, and the person who left it, are ever sent a contact.
+    const contactNote = state.viewer?.isOrganizer ? '' : ' (only organizers see this)';
     return `<div class="slot person${nested ? ' nested' : ''}${signup.isMine ? ' mine' : ''}">
       <div>
         <span class="slot-label">${esc(signup.name)}${
           signup.isMine ? '<span class="pill">You</span>' : ''
         }</span>
         ${details ? `<div class="slot-people">${esc(details)}</div>` : ''}
-        ${signup.contact ? `<div class="slot-people">${esc(signup.contact)}</div>` : ''}
+        ${
+          signup.contact
+            ? `<div class="slot-people contact">${esc(signup.contact)}${esc(contactNote)}</div>`
+            : ''
+        }
       </div>
       <div class="slot-actions">
         ${
           signup.canManage
-            ? `<button type="button" class="btn link danger" data-cancel-signup="${esc(
-                signup.id,
-              )}" data-signup-name="${esc(signup.name)}">Remove</button>`
+            ? `<button type="button" class="btn link" data-edit-signup="${esc(signup.id)}"
+                 aria-label="Edit ${esc(signup.name)}'s sign-up">Edit</button>
+               <button type="button" class="btn link danger" data-cancel-signup="${esc(
+                 signup.id,
+               )}" data-signup-name="${esc(signup.name)}">Remove</button>`
             : ''
         }
       </div>
     </div>`;
   }
 
-  function signupFormHtml({ kind, slotId = '', slotLabel = '', needsItem }) {
-    return `<form class="signup boxed" data-form="signup" data-kind="${esc(kind)}" data-slot="${esc(slotId)}">
-      <p class="form-title">${
-        kind === 'host'
-          ? 'Sign up to host'
-          : slotLabel
-            ? `Signing up for <strong>${esc(slotLabel)}</strong>`
-            : 'Food outside the listed slots'
-      }</p>
+  /**
+   * The sign-up form, for a new sign-up or, given `signup`, for changing one.
+   * An edit changes what a sign-up says, never which slot or role it is for;
+   * the database allows no more than that.
+   */
+  function signupFormHtml({ kind, slotId = '', slotLabel = '', signup = null }) {
+    const editing = Boolean(signup);
+    const host = kind === 'host';
+    const value = (field, key) => esc(editing ? signup[field] : key ? remembered.read(key) : '');
+    const title = editing
+      ? host
+        ? 'Change your host sign-up'
+        : `Change what you are bringing${slotLabel ? ` for <strong>${esc(slotLabel)}</strong>` : ''}`
+      : host
+        ? 'Sign up to host'
+        : slotLabel
+          ? `Signing up for <strong>${esc(slotLabel)}</strong>`
+          : 'Food outside the listed slots';
+    return `<form class="signup boxed" data-form="signup" data-kind="${esc(kind)}" data-slot="${esc(
+      slotId,
+    )}" data-edit-id="${esc(signup?.id ?? '')}">
+      <p class="form-title">${title}</p>
       <div class="row">
         <div class="field">
           <label for="su-name">Your name</label>
           <input id="su-name" name="name" maxlength="${LIMITS.name}" autocomplete="name"
-                 value="${esc(remembered.read(NAME_KEY))}" data-autofocus required />
+                 value="${value('name', NAME_KEY)}" data-autofocus required />
         </div>
         <div class="field">
           <label for="su-contact">Phone or email <span class="help">(optional, organizers only)</span></label>
           <input id="su-contact" name="contact" maxlength="${LIMITS.contact}"
-                 value="${esc(remembered.read(CONTACT_KEY))}" />
+                 value="${value('contact', CONTACT_KEY)}" />
         </div>
       </div>
-      ${
-        needsItem
-          ? `<div class="field">
-              <label for="su-item">What you will bring</label>
-              <input id="su-item" name="item" maxlength="${LIMITS.item}" placeholder="e.g. chicken enchiladas for 12" required />
-            </div>`
-          : ''
-      }
+      <div class="field">
+        <label for="su-item">${host ? 'Address' : 'What you will bring'}</label>
+        <input id="su-item" name="item" maxlength="${LIMITS.item}" value="${value('item')}"
+               ${host ? 'autocomplete="street-address"' : ''} placeholder="${
+                 host ? 'e.g. 12 Elm St, Augusta' : 'e.g. chicken enchiladas for 12'
+               }" required />
+      </div>
       <div class="field">
         <label for="su-note">Note <span class="help">(optional)</span></label>
-        <input id="su-note" name="note" maxlength="${LIMITS.note}" placeholder="${esc(
-          kind === 'host' ? 'Address, parking notes…' : 'Gluten free, needs oven space…',
-        )}" />
+        <input id="su-note" name="note" maxlength="${LIMITS.note}" value="${value('note')}" placeholder="${
+          host ? 'Parking, gate code, pets…' : 'Gluten free, needs oven space…'
+        }" />
       </div>
-      <p class="hint">Your name, what you bring and your note are visible to anyone with the link. Your phone or
-        email is shown only to the organizers. No email is sent.</p>
+      <p class="hint">${
+        host ? 'Your name, the address' : 'Your name, what you bring'
+      } and your note are visible to anyone with the link. Your phone or email is shown only to the
+        organizers. No email is sent.</p>
       <p class="error" data-error hidden></p>
       <div class="form-actions">
-        <button type="submit" class="btn primary">${kind === 'host' ? 'Sign up to host' : 'Add sign-up'}</button>
+        <button type="submit" class="btn primary">${
+          editing ? 'Save changes' : host ? 'Sign up to host' : 'Add sign-up'
+        }</button>
         <button type="button" class="btn ghost" data-cancel-form>Cancel</button>
       </div>
     </form>`;
@@ -602,18 +668,26 @@ export function startApp(data, { onError } = {}) {
 
   function hostSectionHtml(event, modal) {
     if (!event.needsHost && !event.hosts.length) return '';
-    const formOpen = modal.form?.kind === 'host';
-    const spotsLeft = event.hostSpotsLeft;
+    const formOpen = modal.form?.kind === 'host' && !modal.form.editId;
+    const spotsLeft = event.past ? 0 : event.hostSpotsLeft;
+    // Worded like the badge on the card, so the two read as the same thing.
+    const note = event.past
+      ? ''
+      : spotsLeft > 0
+        ? spotsLeft === 1 && !event.hosts.length
+          ? 'Needs a host'
+          : `Needs ${spotsLeft} more`
+        : 'Filled';
     return `<div class="section">
-      <h3>Host <span class="section-note">${
-        spotsLeft > 0
-          ? esc(spotsLeft === 1 ? 'unfilled' : `${spotsLeft} more needed`)
-          : 'filled'
-      }</span></h3>
+      <h3>Host ${note ? `<span class="section-note${spotsLeft > 0 ? ' warn' : ''}">${esc(note)}</span>` : ''}</h3>
       ${
         event.hosts.length
-          ? event.hosts.map((h) => signupLine(h)).join('')
-          : '<p class="hint">The host provides the location. No one has signed up.</p>'
+          ? event.hosts.map((h) => signupLine(h, { modal })).join('')
+          : `<p class="hint">${
+              event.past
+                ? 'Nobody signed up to host.'
+                : 'Nobody has signed up to host yet. The host gives the address when they sign up.'
+            }</p>`
       }
       ${
         spotsLeft > 0 && !formOpen
@@ -622,16 +696,16 @@ export function startApp(data, { onError } = {}) {
             }</button>`
           : ''
       }
-      ${formOpen ? signupFormHtml({ kind: 'host', needsItem: false }) : ''}
+      ${formOpen ? signupFormHtml({ kind: 'host' }) : ''}
     </div>`;
   }
 
   function foodSectionHtml(event, modal) {
-    const form = modal.form?.kind === 'food' ? modal.form : null;
+    const form = modal.form?.kind === 'food' && !modal.form.editId ? modal.form : null;
     const slots = event.foodSlots
       .map((slot) => {
         const openForm = form && form.slotId === slot.id;
-        const status = slotStatus(slot);
+        const status = slotStatus(slot, { past: event.past });
         return `<div class="slot-group">
           <div class="slot${status.tone === 'done' ? ' filled' : ''}">
             <div>
@@ -640,49 +714,45 @@ export function startApp(data, { onError } = {}) {
             </div>
             <div class="slot-actions">
               ${
-                openForm
+                openForm || event.past
                   ? ''
                   : `<button type="button" class="btn${slot.met ? '' : ' primary'}" data-open-form="food"
-                       data-slot="${esc(slot.id)}" data-slot-label="${esc(
-                         slot.label,
-                       )}">Sign up</button>`
+                       data-slot="${esc(slot.id)}" data-slot-label="${esc(slot.label)}"
+                       aria-label="Sign up for ${esc(slot.label)}">Sign up</button>`
               }
             </div>
           </div>
-          ${slot.people.map((p) => signupLine(p, { nested: true })).join('')}
-          ${openForm ? signupFormHtml({ kind: 'food', slotId: slot.id, slotLabel: slot.label, needsItem: true }) : ''}
+          ${slot.people.map((p) => signupLine(p, { nested: true, modal, slotLabel: slot.label })).join('')}
+          ${openForm ? signupFormHtml({ kind: 'food', slotId: slot.id, slotLabel: slot.label }) : ''}
         </div>`;
       })
       .join('');
 
+    if (event.past && !event.foodSlots.length && !event.otherFood.length) return '';
     const otherFormOpen = form && !form.slotId;
+    const short = foodStillNeeded(event);
+    const note =
+      event.past || !event.foodSlots.length ? '' : short > 0 ? `${short} more needed` : 'Every slot covered';
+    const intro = event.past
+      ? ''
+      : event.foodSlots.length
+        ? `<p class="hint">Pick a slot and say what you are bringing. The number is how many people the
+             organizer wants; a slot never closes, so you can always add to one.</p>`
+        : '<p class="hint">No slots are set for this event. Bring anything.</p>';
     return `<div class="section">
-      <h3>Food <span class="section-note">${
-        event.foodSlots.length
-          ? esc(
-              foodStillNeeded(event) > 0
-                ? `${foodStillNeeded(event)} more needed`
-                : 'every slot covered',
-            )
-          : ''
-      }</span></h3>
-      ${
-        event.foodSlots.length
-          ? `<p class="hint">Sign up for a slot and enter what you are bringing. The number is how many
-               people the organizer wants; a slot never closes, so you can always add to one.</p>${slots}`
-          : '<p class="hint">No slots are set for this event. Bring anything.</p>'
-      }
+      <h3>Food ${note ? `<span class="section-note${short > 0 ? ' warn' : ''}">${esc(note)}</span>` : ''}</h3>
+      ${intro}${slots}
       ${
         event.otherFood.length
-          ? `<p class="hint">Other food:</p>${event.otherFood.map((p) => signupLine(p)).join('')}`
+          ? `<p class="hint">Other food:</p>${event.otherFood.map((p) => signupLine(p, { modal })).join('')}`
           : ''
       }
       ${
-        event.allowOtherFood && !otherFormOpen
+        event.allowOtherFood && !otherFormOpen && !event.past
           ? '<button type="button" class="btn" data-open-form="food">Add other food</button>'
           : ''
       }
-      ${otherFormOpen ? signupFormHtml({ kind: 'food', needsItem: true }) : ''}
+      ${otherFormOpen ? signupFormHtml({ kind: 'food' }) : ''}
     </div>`;
   }
 
@@ -693,11 +763,21 @@ export function startApp(data, { onError } = {}) {
         <div>
           <h2 id="modal-title">${esc(event.title)}</h2>
           <p class="when">${esc(formatLongDate(event.date))} · ${esc(formatTimeRange(event))}</p>
-          ${event.location ? `<p class="when">${esc(event.location)}</p>` : ''}
+          ${
+            event.where
+              ? `<p class="where">${esc(event.where)}${
+                  event.hosts.length
+                    ? ` <span class="muted">· hosted by ${esc(event.hosts.map((h) => h.name).join(', '))}</span>`
+                    : ''
+                }</p>`
+              : event.needsHost && !event.past
+                ? '<p class="when">Location: the host gives it when they sign up.</p>'
+                : ''
+          }
         </div>
         <button type="button" class="close" data-close aria-label="Close">&times;</button>
       </div>
-      <p class="summary${summary.done ? ' done' : ''}">${esc(summary.text)}</p>
+      <p class="summary${summary.done ? ' done' : ''}${summary.past ? ' past' : ''}">${esc(summary.text)}</p>
       ${event.description ? `<p class="description">${esc(event.description)}</p>` : ''}
       ${
         event.mine.length
@@ -760,19 +840,17 @@ export function startApp(data, { onError } = {}) {
               event?.title ?? '',
             )}" data-autofocus required />
           </div>
+          <div class="field narrow">
+            <label for="ev-date">Date</label>
+            <input id="ev-date" name="date" type="date" value="${esc(
+              event?.date ?? presetDate ?? isoDate(new Date()),
+            )}" required />
+          </div>
           <div class="row">
-            <div class="field">
-              <label for="ev-date">Date</label>
-              <input id="ev-date" name="date" type="date" value="${esc(
-                event?.date ?? presetDate ?? isoDate(new Date()),
-              )}" required />
-            </div>
             <div class="field">
               <label for="ev-start">Start time</label>
               <input id="ev-start" name="startTime" type="time" value="${esc(event?.startTime ?? '18:00')}" />
             </div>
-          </div>
-          <div class="row">
             <div class="field">
               <label for="ev-end">End time <span class="help">(optional)</span></label>
               <input id="ev-end" name="endTime" type="time" value="${esc(event?.endTime ?? '')}" />
@@ -803,7 +881,7 @@ export function startApp(data, { onError } = {}) {
             <input id="ev-host-limit" name="hostLimit" type="number" min="1" value="${esc(
               event?.hostLimit || 1,
             )}" />
-            <span class="help">The host adds the address in their sign-up note.</span>
+            <span class="help">The host enters the address when they sign up.</span>
           </div>
           <div class="checkbox">
             <input id="ev-host-set" name="hosting" type="radio" value="set" ${
@@ -876,16 +954,40 @@ export function startApp(data, { onError } = {}) {
     target.scrollIntoView({ block: 'nearest' });
   }
 
+  /**
+   * Removing a slot keeps its sign-ups, as "Other food" — the database does
+   * that on its own, so say so before it happens rather than after.
+   */
+  function confirmSlotRemoval(form, slots) {
+    const existing = form.dataset.eventId ? eventById(form.dataset.eventId) : null;
+    if (!existing) return true;
+    const kept = new Set(slots.map((slot) => slot.id).filter(Boolean));
+    const affected = existing.foodSlots.filter((slot) => !kept.has(slot.id) && slot.people.length);
+    if (!affected.length) return true;
+    const list = affected
+      .map((slot) => `${slot.label} (${slot.people.map((p) => p.name).join(', ')})`)
+      .join('; ');
+    const people = affected.reduce((sum, slot) => sum + slot.people.length, 0);
+    return window.confirm(
+      `You removed ${affected.length === 1 ? 'a slot' : 'slots'} people signed up for: ${list}.\n\n` +
+        `${people === 1 ? 'That sign-up is' : `Those ${people} sign-ups are`} kept and moved to "Other food". ` +
+        'Save anyway?',
+    );
+  }
+
+  /** Returns false when the organizer backs out, so the form stays as it was. */
   async function submitEventForm(form) {
     const values = Object.fromEntries(new FormData(form).entries());
     const event = eventFromForm(values, {
       id: form.dataset.eventId,
       allowOtherFood: form.querySelector('[name="allowOtherFood"]').checked,
     });
+    const slots = collectSlots(form);
+    if (!confirmSlotRemoval(form, slots)) return false;
     // An earlier month may not have been loaded; saving into it should still
     // show the event afterwards.
     if (state.since && event.date < state.since) state.since = event.date;
-    const id = await data.saveEvent(event, collectSlots(form));
+    const id = await data.saveEvent(event, slots);
     await reload();
     render();
     openModal({ type: 'event', eventId: id, form: null });
@@ -901,12 +1003,23 @@ export function startApp(data, { onError } = {}) {
       kind: form.dataset.kind,
       slotId: form.dataset.slot,
     });
-    remembered.write(NAME_KEY, signup.name);
-    remembered.write(CONTACT_KEY, signup.contact);
-    await data.addSignup(signup);
+    const editId = form.dataset.editId;
+    const editing = editId ? state.events.flatMap((e) => e.signups).find((s) => s.id === editId) : null;
+    // Pre-fill next time with your own details, not with someone an organizer
+    // was correcting.
+    if (!editing || editing.isMine) {
+      remembered.write(NAME_KEY, signup.name);
+      remembered.write(CONTACT_KEY, signup.contact);
+    }
+    if (editId) {
+      const { name, contact, item, note } = signup;
+      await data.updateSignup(editId, { name, contact, item, note });
+    } else {
+      await data.addSignup(signup);
+    }
     modal.form = null;
     await refresh();
-    toast(form.dataset.kind === 'host' ? 'Signed up to host.' : 'Sign-up added.');
+    toast(editId ? 'Sign-up updated.' : form.dataset.kind === 'host' ? 'Signed up to host.' : 'Sign-up added.');
   }
 
   async function submitLoginForm(form) {
@@ -984,6 +1097,15 @@ export function startApp(data, { onError } = {}) {
           state.cursor = startOfMonth(parseISODate(event.date));
           render();
         }
+      } else if (target.hasAttribute('data-toggle-past')) {
+        state.showPast = !state.showPast;
+        render();
+        // Older months are only loaded on demand; showing the past is a demand.
+        if (state.showPast && state.since) {
+          state.since = null;
+          await reload();
+          render();
+        }
       } else if (target.dataset.expandDay) {
         state.expandedDay = target.dataset.expandDay;
         render();
@@ -998,6 +1120,12 @@ export function startApp(data, { onError } = {}) {
       } else if (target.dataset.openForm) {
         state.modal.form = { kind: target.dataset.openForm, slotId: target.dataset.slot || null };
         renderModal();
+      } else if (target.dataset.editSignup) {
+        const signup = eventById(state.modal.eventId)?.signups.find((s) => s.id === target.dataset.editSignup);
+        if (signup) {
+          state.modal.form = { kind: signup.kind, slotId: signup.slotId || null, editId: signup.id };
+          renderModal();
+        }
       } else if (target.hasAttribute('data-cancel-form')) {
         state.modal.form = null;
         renderModal();
@@ -1074,10 +1202,15 @@ export function startApp(data, { onError } = {}) {
       submit.textContent = 'Saving…';
     }
     try {
+      let done = true;
       if (form.dataset.form === 'login') await submitLoginForm(form);
       else if (form.dataset.form === 'rename') await submitRenameForm(form);
-      else if (form.dataset.form === 'event') await submitEventForm(form);
+      else if (form.dataset.form === 'event') done = (await submitEventForm(form)) !== false;
       else await submitSignupForm(form);
+      if (!done && submit) {
+        submit.disabled = false;
+        submit.textContent = label;
+      }
     } catch (err) {
       showFormError(form, err.message);
       if (submit) {

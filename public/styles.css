@@ -188,6 +188,7 @@ h1, h2, h3, h4 {
   background: linear-gradient(#c79ddb 0 25%, #f4a3b8 25% 50%, #ff9a5c 50% 75%, #f2a93b 75% 100%);
 }
 .topbar-actions { display: flex; gap: var(--space-2); align-items: center; }
+.topbar-actions .btn { white-space: nowrap; }
 .topbar-divider { width: 1px; height: 24px; background: rgba(246, 236, 230, 0.25); }
 .topbar .btn.ghost {
   color: var(--ink-inverse);
@@ -444,6 +445,37 @@ main {
 .chip .chip-time { flex: 0 0 auto; color: var(--muted); }
 .chip .chip-title { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .chip.mine { box-shadow: inset 0 0 0 1px var(--accent); }
+.chip.past { opacity: 0.6; }
+.chip.past .dot { background: var(--muted); }
+
+/* The key to the chips, which a touch screen has no tooltip for. */
+.legend {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted);
+}
+.legend > span { display: inline-flex; align-items: center; gap: 6px; }
+/* Each swatch is a tiny chip, so the key matches the chips themselves: the
+   background tells the two host states apart more than the dot does. */
+.legend .swatch {
+  width: 22px;
+  height: 14px;
+  border-radius: 4px;
+  background: var(--glow);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.legend .swatch .dot { width: 6px; height: 6px; border-radius: var(--radius-pill); background: var(--accent); }
+.legend .swatch.needs-host { background: var(--haze); }
+.legend .swatch.needs-host .dot { background: var(--warning); }
+.legend .swatch.mine { background: var(--surface); box-shadow: inset 0 0 0 1px var(--accent); }
 
 .more {
   flex: 0 0 auto;
@@ -517,6 +549,9 @@ main {
 .agenda-open:focus-visible { outline: none; }
 .agenda-card .when { color: var(--muted); font-size: 13px; line-height: 18px; margin: 0 0 var(--space-1); }
 .agenda-card .where { color: var(--muted); font-size: 13px; line-height: 18px; margin: var(--space-1) 0 0; }
+.agenda-card.past { box-shadow: none; opacity: 0.8; }
+.past-toggle { align-self: center; margin-top: var(--space-2); }
+.agenda-heading { font: 600 14px/20px var(--font-sans); color: var(--muted); margin-top: var(--space-2); }
 .agenda-cue { display: block; margin-top: var(--space-3); font-size: 14px; line-height: 18px; color: var(--accent); font-weight: 600; }
 
 .badges { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
@@ -580,6 +615,8 @@ main {
 }
 .modal h2 { font-size: 22px; line-height: 30px; }
 .modal .when { color: var(--muted); font-size: 14px; line-height: 20px; margin: var(--space-1) 0 0; }
+.modal .where { font-size: 14px; line-height: 20px; font-weight: 600; margin: var(--space-1) 0 0; }
+.modal .where .muted { color: var(--muted); font-weight: 400; }
 .modal .description { white-space: pre-wrap; margin: var(--space-3) 0 0; }
 .close {
   border: 0; background: none; font-size: 24px; line-height: 1; cursor: pointer;
@@ -599,6 +636,7 @@ main {
   color: var(--ink);
 }
 .summary.done { background: var(--success-soft); color: var(--ink); }
+.summary.past { background: var(--surface-2); color: var(--muted); }
 .yours {
   margin: var(--space-3) 0 0;
   font-size: 13px;
@@ -608,7 +646,8 @@ main {
 
 .section { margin-top: var(--space-5); border-top: 1px solid var(--border); padding-top: var(--space-5); }
 .section h3 { font-size: 18px; line-height: 24px; margin-bottom: var(--space-3); display: flex; gap: var(--space-2); align-items: baseline; }
-.section-note { font: 400 13px/18px var(--font-sans); color: var(--muted); text-transform: lowercase; }
+.section-note { font: 400 13px/18px var(--font-sans); color: var(--muted); }
+.section-note.warn { color: var(--warning); font-weight: 600; }
 .section > p.hint { color: var(--muted); font-size: 13px; line-height: 18px; margin: 0 0 var(--space-3); }
 .footer-actions .form-actions { width: 100%; }
 
@@ -670,6 +709,7 @@ legend {
 .field { display: grid; gap: var(--space-1); }
 .field.indented { margin-left: 26px; max-width: 200px; }
 .field.indented.wide { max-width: 420px; }
+.field.narrow { max-width: calc(50% - var(--space-2)); }
 .field label { font-size: 14px; line-height: 18px; font-weight: 600; }
 .field .help { font-size: 13px; line-height: 18px; color: var(--muted); font-weight: 400; }
 form .hint { color: var(--muted); font-size: 13px; line-height: 18px; margin: 0; }
@@ -743,6 +783,14 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 }
 .toast.error { background: var(--danger); color: var(--on-danger); }
 
+/* Only organizers sign in, so it lives down here rather than in the header. */
+.site-footer {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  padding: var(--space-1) var(--space-4) var(--space-4);
+}
+
 /* Reduced motion: no travel or lift, only quick fades. */
 @media (prefers-reduced-motion: reduce) {
   .skeleton-grid span { animation: none; }
@@ -761,6 +809,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 
 @media (max-width: 720px) {
   .row, .slot-editor-row { grid-template-columns: 1fr; }
+  .field.narrow { max-width: none; }
   .slot-editor-head { display: none; }
   .slot-editor-row { padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); }
   main { padding: var(--space-3); gap: var(--space-3); }

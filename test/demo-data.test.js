@@ -152,4 +152,19 @@ describe('demo data source', () => {
     const some = await data.loadEvents({ since: later });
     assert.deepEqual(some.map((e) => e.date), [later]);
   });
+
+  it('lets you edit what your sign-up says, but not what it is for', async () => {
+    const event = await firstEvent();
+    const main = event.foodSlots.find((s) => s.label === 'Main dish');
+    await data.addSignup({ eventId: event.id, slotId: main.id, kind: 'food', name: 'Anna', item: 'Lasagna' });
+    const mine = (await firstEvent()).signups.find((s) => s.name === 'Anna');
+    await data.updateSignup(mine.id, { item: 'Chili', kind: 'host', slotId: null });
+    const after = (await firstEvent()).signups.find((s) => s.id === mine.id);
+    assert.deepEqual([after.item, after.kind, after.slotId], ['Chili', 'food', main.id]);
+  });
+
+  it('refuses to let a visitor edit someone else\'s sign-up', async () => {
+    const marisol = (await firstEvent()).signups.find((s) => s.name === 'Marisol');
+    await assert.rejects(() => data.updateSignup(marisol.id, { item: 'Nothing' }), /not allowed/);
+  });
 });

@@ -25,10 +25,9 @@
         <button type="button" id="share-btn" class="btn ghost" title="Copy the link to this calendar">
           Share link
         </button>
-        <span class="topbar-divider" aria-hidden="true"></span>
+        <span class="topbar-divider" aria-hidden="true" hidden></span>
         <button type="button" id="who" class="who" hidden></button>
         <button type="button" id="signout-btn" class="btn ghost" hidden>Sign out</button>
-        <button type="button" id="signin-btn" class="btn ghost">Organizer sign in</button>
       </div>
     </header>
 
@@ -65,6 +64,11 @@
       <section id="calendar" class="calendar" aria-label="Month view" hidden></section>
       <section id="agenda" class="agenda" aria-label="Upcoming events" hidden></section>
     </main>
+
+    <!-- Only the organizers need this, so it stays out of the header. -->
+    <footer class="site-footer">
+      <button type="button" id="signin-btn" class="btn link">Organizer sign in</button>
+    </footer>
 
     <div id="modal-root" class="modal-root" hidden></div>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

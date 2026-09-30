@@ -145,13 +145,13 @@ without waiting for tests.)
 | See the calendar and who signed up | yes | yes |
 | Sign up to host an event | yes | yes |
 | Sign up to bring food | yes | yes |
-| See a sign-up's phone or email | only their own | yes |
-| Edit or cancel **their own** sign-up | yes | yes |
+| See the phone number or email someone left | only their own | yes |
+| Edit or remove **their own** sign-up, until the event is over | yes | yes |
 | Create, edit, or delete events | **no** | yes |
-| Remove anyone's sign-up | no | yes |
+| Edit or remove anyone's sign-up | no | yes |
 
-Organizers sign in with the button in the header, using the email and password
-from step 4. Everyone else just opens the link — no account, no password, no
+Organizers sign in with the **Organizer sign in** link at the bottom of the
+page, using the email and password from step 4. Everyone else just opens the link — no account, no password, no
 app to install. Their browser quietly holds an anonymous session, which is what
 lets them manage the sign-ups they made. If they clear their browser data they
 can still see everything; they'd just need an organizer to remove an old
@@ -168,12 +168,18 @@ sign-up for them.
 2. Send the group the link. "Copy link to this event" inside an event gives a
    link that opens straight to that week.
 3. If the event is still looking for a host, someone taps **Sign up to
-   host**, leaving a note like the address or where to park.
+   host** and gives the address. That address then shows as the event's
+   location everywhere, with a note for things like where to park.
 4. Everyone else picks a food slot and types what they're bringing. A slot
    never closes: once it has the number you asked for it shows as covered, and
    anyone who wants to add another side dish still can. Each person's own
    sign-up records what they are bringing, so the list under a slot reads as
    "Anna — Lasagna, Bob — Chili" rather than a bare count.
+5. Anyone can **Edit** or **Remove** their own sign-up through the day of the
+   event. After that the event is read-only, except to organizers.
+
+If an organizer removes a food slot that people signed up for, the editor
+names them and asks first; their sign-ups are kept, listed under "Other food".
 
 ### What a first-time visitor sees
 
@@ -188,6 +194,12 @@ header reopens it.
 - Your own sign-ups are marked **You**. The marker is tied to the browser, not
   to an account.
 - A month with no events says so and links to the month of the next event.
+- In **Month**, a key under the grid explains the chip colours; a lavender
+  chip still needs a host.
+- **Upcoming** ends with **Show past events**, for checking who brought what.
+- The phone number or email on a sign-up is optional and shown only to
+  organizers (and to the person who left it). The database enforces that, not
+  just the page.
 
 ## Day-to-day
 
@@ -231,7 +243,8 @@ weekly won't hit that.
 ## What this is not
 
 The share link is unlisted, not secret. Anyone who has it can read the calendar
-— names, dishes and notes, though not phone numbers or emails — and add a
+— names, dishes, notes and hosts' addresses, though not phone numbers or
+emails — and add a
 sign-up under any name — that's the trade-off that keeps it
 frictionless for a community group, but it means the calendar shouldn't hold
 anything you'd mind being forwarded. The restriction that *is* enforced is on

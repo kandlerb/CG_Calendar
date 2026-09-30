@@ -7,6 +7,7 @@ import {
   groupByDate,
   nextEvent,
   shapeEvent,
+  past,
   shapeEvents,
   upcoming,
 } from '../public/lib/model.js';
@@ -217,13 +218,12 @@ describe('badge wording', () => {
     assert.equal(text.includes('Needs 3 more hosts'), true);
   });
 
-  it('says "1 person" and "2 people", never "1 people"', () => {
-    const one = badgeText(event({ signups: [signup({ id: 'f1', slotId: 'main' })] }));
-    assert.equal(one.includes('1 person bringing food'), true);
-    const two = badgeText(
-      event({ signups: [signup({ id: 'f1', slotId: 'main' }), signup({ id: 'f2', slotId: 'sides' })] }),
+  it('gives one food badge, not a shortfall and a head count side by side', () => {
+    const text = badgeText(event({ signups: [signup({ id: 'f1', slotId: 'sides' })] }));
+    assert.deepEqual(
+      text.filter((t) => /food/i.test(t)),
+      ['1 more food sign-up needed'],
     );
-    assert.equal(two.includes('2 people bringing food'), true);
   });
 
   it('tells the viewer when one of the sign-ups is their own', () => {
@@ -330,5 +330,55 @@ describe('lists', () => {
       {},
     );
     assert.deepEqual(upcoming(list, '2026-09-02').map((e) => e.id), ['today']);
+  });
+});
+
+describe('where an event is', () => {
+  it('uses the location the organizer typed in', () => {
+    assert.equal(shapeEvent(event({ needsHost: false, location: 'Riverside Park' })).where, 'Riverside Park');
+  });
+
+  it('uses the address the host gave once someone signs up to host', () => {
+    const hosted = event({ signups: [signup({ id: 'h1', kind: 'host', item: '12 Elm St', note: 'Park on the street' })] });
+    assert.equal(shapeEvent(hosted).where, '12 Elm St');
+  });
+
+  it('falls back to the note for a host who signed up before there was an address field', () => {
+    const hosted = event({ signups: [signup({ id: 'h1', kind: 'host', item: '', note: '12 Elm St' })] });
+    assert.equal(shapeEvent(hosted).where, '12 Elm St');
+  });
+
+  it('is empty while the event is still waiting for a host', () => {
+    assert.equal(shapeEvent(event()).where, '');
+  });
+});
+
+describe('events that are over', () => {
+  const today = '2026-09-10';
+  const over = event({ date: '2026-09-02', signups: [signup({ id: 'mine', slotId: 'main' })] });
+
+  it('is only decided when the caller says what today is', () => {
+    assert.equal(shapeEvent(over).past, false);
+    assert.equal(shapeEvent(over, { todayKey: today }).past, true);
+    assert.equal(shapeEvent(event({ date: today }), { todayKey: today }).past, false, 'today is not past');
+  });
+
+  it('stops a participant changing their sign-up, but not an organizer', () => {
+    assert.equal(shapeEvent(over, { userId: ANNA, todayKey: today }).signups[0].canManage, false);
+    assert.equal(shapeEvent(over, { userId: 'x', isOrganizer: true, todayKey: today }).signups[0].canManage, true);
+  });
+
+  it('asks for nothing', () => {
+    const shaped = shapeEvent(over, { userId: ANNA, todayKey: today });
+    assert.equal(eventSummary(shaped).text, 'This event has passed.');
+    assert.deepEqual(eventBadges(shaped).map((b) => b.text), ['Past event', 'You signed up']);
+  });
+
+  it('lists past events most recent first', () => {
+    const list = shapeEvents(
+      [event({ id: 'a', date: '2026-08-01' }), event({ id: 'b', date: '2026-09-01' }), event({ id: 'c', date: today })],
+      {},
+    );
+    assert.deepEqual(past(list, today).map((e) => e.id), ['b', 'a']);
   });
 });

@@ -20,14 +20,34 @@ export function slotState(slot, signups) {
   };
 }
 
-/** Decorates one event with its sign-ups, and with who may change what. */
-export function shapeEvent(event, { userId = null, isOrganizer = false } = {}) {
+/**
+ * Where the event is. An organizer who arranged the host types the location
+ * in; otherwise it is wherever the host said when they signed up (their
+ * address is the sign-up's `item`; older host sign-ups put it in the note).
+ * Empty while an event is still waiting for a host.
+ */
+function whereItIs(event, hosts) {
+  if (event.location) return event.location;
+  return hosts
+    .map((host) => host.item || host.note)
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/**
+ * Decorates one event with its sign-ups, and with who may change what.
+ * `todayKey` ("2026-09-02") marks events before it as past; without it no
+ * event is treated as past.
+ */
+export function shapeEvent(event, { userId = null, isOrganizer = false, todayKey = null } = {}) {
+  const past = Boolean(todayKey) && event.date < todayKey;
   const signups = (event.signups ?? []).map((signup) => {
     // "Mine" is about whose name is on it; "canManage" also lets an organizer
-    // tidy up after everyone. The page says "You" for the first and shows a
-    // Cancel button for the second.
+    // tidy up after everyone. The page says "You" for the first and shows
+    // Edit and Remove for the second. Once an event is over its sign-ups are
+    // a record, so only an organizer may still change them.
     const mine = Boolean(userId) && signup.createdBy === userId;
-    return { ...signup, isMine: mine, canManage: isOrganizer || mine };
+    return { ...signup, isMine: mine, canManage: isOrganizer || (mine && !past) };
   });
   const slots = [...(event.foodSlots ?? [])]
     .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
@@ -37,6 +57,8 @@ export function shapeEvent(event, { userId = null, isOrganizer = false } = {}) {
   const food = signups.filter((s) => s.kind === 'food');
   return {
     ...event,
+    past,
+    where: whereItIs(event, hosts),
     signups,
     hosts,
     food,
@@ -71,6 +93,7 @@ export function foodStillNeeded(event) {
  * straight away whether there is anything left for them to do.
  */
 export function eventSummary(event) {
+  if (event.past) return { done: true, past: true, text: 'This event has passed.' };
   const needs = [];
   if (event.needsHost && event.hostSpotsLeft > 0) {
     needs.push(event.hostSpotsLeft === 1 ? 'a host' : `${event.hostSpotsLeft} more hosts`);
@@ -85,6 +108,12 @@ export function eventSummary(event) {
 /** The short status labels shown on a chip or card. */
 export function eventBadges(event) {
   const badges = [];
+  if (event.past) {
+    // Nothing is still needed from an event that is over.
+    badges.push({ text: 'Past event', warn: false });
+    if (event.mine?.length) badges.push({ text: 'You signed up', warn: false, mine: true });
+    return badges;
+  }
   // An event whose host is arranged by the organizer has no host badge; the
   // location on the card says where it is.
   if (event.needsHost && event.hostSpotsLeft > 0) {
@@ -103,10 +132,6 @@ export function eventBadges(event) {
     badges.push({ text: 'Food covered', warn: false });
   }
 
-  if (event.food.length) {
-    const people = event.food.length === 1 ? '1 person' : `${event.food.length} people`;
-    badges.push({ text: `${people} bringing food`, warn: false });
-  }
   if (event.mine?.length) {
     badges.push({ text: 'You signed up', warn: false, mine: true });
   }
@@ -124,6 +149,11 @@ export function groupByDate(events) {
 
 export function upcoming(events, todayKey) {
   return events.filter((event) => event.date >= todayKey);
+}
+
+/** Events before `todayKey`, most recent first. */
+export function past(events, todayKey) {
+  return events.filter((event) => event.date < todayKey).reverse();
 }
 
 /** The soonest event on or after `todayKey`, or null. Events arrive sorted. */

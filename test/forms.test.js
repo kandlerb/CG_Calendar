@@ -113,10 +113,11 @@ describe('the sign-up form', () => {
     assert.throws(() => signupFromForm({ name: 'Anna', item: '   ' }, base), /bring/);
   });
 
-  it('does not ask a host what they are bringing', () => {
-    const host = signupFromForm({ name: 'Anna' }, { eventId: 'e1', kind: 'host' });
-    assert.equal(host.item, '');
+  it('asks a host for the address instead of a dish', () => {
+    const host = signupFromForm({ name: 'Anna', item: ' 12 Elm St ' }, { eventId: 'e1', kind: 'host' });
+    assert.equal(host.item, '12 Elm St');
     assert.equal(host.slotId, null);
+    assert.throws(() => signupFromForm({ name: 'Anna', item: ' ' }, { eventId: 'e1', kind: 'host' }), /address/);
   });
 });
 
@@ -125,19 +126,29 @@ describe('what a slot says about itself', () => {
   const status = (needed, taken) => slotStatus(slotState({ id: 's', label: 'Main', needed }, people(taken))).text;
 
   it('counts toward the number wanted', () => {
-    assert.equal(status(3, 1), '1 of 3. 2 more needed.');
+    assert.equal(status(3, 1), '1 of 3 · 2 more needed');
+  });
+
+  it('does not repeat itself before anyone has signed up', () => {
+    assert.equal(status(2, 0), '2 needed');
   });
 
   it('says covered once the number is met', () => {
-    assert.equal(status(2, 2), '2 of 2. Covered.');
+    assert.equal(status(2, 2), '2 of 2 · covered');
   });
 
   it('does not say "5 of 2" once past the number', () => {
-    assert.equal(status(2, 5), '5 signed up. Covered.');
+    assert.equal(status(2, 5), '5 signed up · covered');
   });
 
-  it('just counts when no number was set', () => {
-    assert.equal(status(0, 4), '4 signed up. No number set.');
+  it('welcomes any number when none was set', () => {
+    assert.equal(status(0, 0), 'Any number welcome');
+    assert.equal(status(0, 4), '4 signed up · any number welcome');
+  });
+
+  it('only counts once the event is over', () => {
+    const slot = slotState({ id: 's', label: 'Main', needed: 3 }, people(1));
+    assert.deepEqual(slotStatus(slot, { past: true }), { text: '1 signed up', tone: 'done' });
   });
 });
 

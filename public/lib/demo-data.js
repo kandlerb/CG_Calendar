@@ -23,6 +23,7 @@ function seed() {
   const mainDish = 'demo-slot-main';
   const sides = 'demo-slot-sides';
   const dessert = 'demo-slot-dessert';
+  const lastWeek = 'demo-event-last-week';
   return {
     events: [
       {
@@ -49,7 +50,7 @@ function seed() {
             kind: 'food',
             name: 'Marisol',
             contact: 'marisol@example.com',
-            item: 'Tres leches cake',
+            item: 'Elote salad',
             note: '',
             createdBy: 'someone-else',
           },
@@ -72,6 +73,44 @@ function seed() {
           { id: 'demo-slot-drinks', label: 'Drinks', needed: 2, position: 2 },
         ],
         signups: [],
+      },
+      // Already happened, so the demo shows how a past event reads.
+      {
+        id: lastWeek,
+        title: 'Community Group — Week 0',
+        description: 'Kickoff night.',
+        location: '',
+        date: relativeDate(-7),
+        startTime: '18:30',
+        endTime: '20:30',
+        needsHost: true,
+        hostLimit: 1,
+        allowOtherFood: true,
+        foodSlots: [{ id: 'demo-slot-week0-main', label: 'Main dish', needed: 1, position: 0 }],
+        signups: [
+          {
+            id: 'demo-signup-week0-host',
+            eventId: lastWeek,
+            slotId: null,
+            kind: 'host',
+            name: 'The Parkers',
+            contact: '',
+            item: '418 Walton Way',
+            note: 'Park on the street',
+            createdBy: 'someone-else',
+          },
+          {
+            id: 'demo-signup-week0-main',
+            eventId: lastWeek,
+            slotId: 'demo-slot-week0-main',
+            kind: 'food',
+            name: 'Dev',
+            contact: '',
+            item: 'Pulled pork',
+            note: '',
+            createdBy: 'someone-else',
+          },
+        ],
       },
     ],
   };
@@ -185,9 +224,13 @@ export function createDemoData() {
     },
 
     async updateSignup(id, patch) {
+      // Only what a sign-up says can change, as in the database.
+      const allowed = ['name', 'contact', 'item', 'note'];
       for (const event of state.events) {
         const signup = event.signups.find((s) => s.id === id);
-        if (signup) Object.assign(signup, patch);
+        if (!signup) continue;
+        if (!viewer.isOrganizer && signup.createdBy !== me) throw new Error('You are not allowed to do that.');
+        for (const key of allowed) if (key in patch) signup[key] = patch[key];
       }
     },
 

@@ -74,7 +74,10 @@ export function eventFromForm(values, { id = null, allowOtherFood = true } = {})
   };
 }
 
-/** A sign-up form's values, checked. Blank-looking names and dishes are refused. */
+/**
+ * A sign-up form's values, checked. Blank-looking names and dishes are
+ * refused. A host's `item` is the address, which becomes the event's location.
+ */
 export function signupFromForm(values, { eventId, kind, slotId = null }) {
   return {
     eventId,
@@ -82,19 +85,31 @@ export function signupFromForm(values, { eventId, kind, slotId = null }) {
     slotId: slotId || null,
     name: required(values.name, 'Enter your name.'),
     contact: text(values.contact),
-    item: kind === 'food' ? required(values.item, 'Say what you will bring.') : '',
+    item:
+      kind === 'food'
+        ? required(values.item, 'Say what you will bring.')
+        : required(values.item, 'Enter the address people should come to.'),
     note: text(values.note),
   };
 }
 
 /** What a food slot says about itself under its label. */
-export function slotStatus(slot) {
-  if (slot.noMinimum) return { text: `${slot.taken} signed up. No number set.`, tone: 'open' };
+export function slotStatus(slot, { past = false } = {}) {
+  // Once the event is over nothing is needed; it is just a record.
+  if (past) return { text: `${slot.taken} signed up`, tone: 'done' };
+  if (slot.noMinimum) {
+    return {
+      text: slot.taken ? `${slot.taken} signed up · any number welcome` : 'Any number welcome',
+      tone: 'open',
+    };
+  }
   // Past the number asked for, "5 of 2" reads like a mistake; just say how
   // many are coming.
-  if (slot.taken > slot.needed) return { text: `${slot.taken} signed up. Covered.`, tone: 'done' };
-  if (slot.met) return { text: `${slot.taken} of ${slot.needed}. Covered.`, tone: 'done' };
-  return { text: `${slot.taken} of ${slot.needed}. ${slot.stillNeeded} more needed.`, tone: 'open' };
+  if (slot.taken > slot.needed) return { text: `${slot.taken} signed up · covered`, tone: 'done' };
+  if (slot.met) return { text: `${slot.taken} of ${slot.needed} · covered`, tone: 'done' };
+  // "0 of 2. 2 more needed." says the same thing twice.
+  if (!slot.taken) return { text: `${slot.needed} needed`, tone: 'open' };
+  return { text: `${slot.taken} of ${slot.needed} · ${slot.stillNeeded} more needed`, tone: 'open' };
 }
 
 /** The first day the page loads events from, until someone looks further back. */
