@@ -211,6 +211,9 @@ header reopens it.
 - A month with no events says so and links to the month of the next event.
 - In **Month**, a key under the grid explains the chip colours; a lavender
   chip still needs a host.
+- The moon/sun button left of the title switches between light and dark. The
+  page follows the device's setting until someone picks one, and the choice
+  is remembered in that browser.
 - **Month** starts with a **Next up** line: the next event that is still on,
   what it needs, and a button to open it.
 - **Add to my calendar** in an event downloads it as a calendar file, which a
@@ -300,6 +303,7 @@ public/                the website — this is what GitHub Pages serves
   demo.html            the same app on in-memory data, no backend
   config.js            your Supabase URL and anon key
   app.js               all the page's behaviour
+  theme.js             the light / dark toggle, applied before the page draws
   lib/dates.js         calendar maths
   lib/model.js         turning rows into what's on screen
   lib/forms.js         checking what was typed before it is saved; weekly copies

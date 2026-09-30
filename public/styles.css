@@ -71,8 +71,12 @@
   --shadow: var(--shadow-sm);
 }
 
+/* Dark tokens. The page follows the device unless someone picks a theme with
+   the toggle in the header, which sets data-theme on <html>. The two blocks
+   hold the same values; test/theme.test.js keeps them in step. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --surface-100: #15111e;
     --surface-200: #1f192b;
     --surface-300: #2a2239;
@@ -104,6 +108,39 @@
     --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.5);
   }
 }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-100: #15111e;
+  --surface-200: #1f192b;
+  --surface-300: #2a2239;
+  --border-hair: #3b3049;
+  --border-strong: #7d6c8c;
+  --ink: #f6ece6;
+  --ink-muted: #b8a6bf;
+  --ember: #ff9a5c;
+  --on-ember: #24121a;
+  --dusk: #c79ddb;
+  --on-dusk: #1d1226;
+  --rose: #f4a3b8;
+  --glow: #4a2a26;
+  --haze: #342648;
+  --horizon: #ffd37a;
+  --twilight: #0c0914;
+  --focus: #f4a3b8;
+  --success: #6fd3bf;
+  --warning: #f2c14e;
+  --danger: #ff8f85;
+  --on-danger: #2a0d0b;
+  --danger-soft: #3a1c1f;
+  --success-soft: #173430;
+  --on-warning: #231a05;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.45), 0 20px 48px rgba(0, 0, 0, 0.55);
+  --shadow-glow: 0 6px 24px rgba(255, 154, 92, 0.25);
+  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+:root[data-theme="light"] { color-scheme: light; }
 
 * { box-sizing: border-box; }
 
@@ -169,6 +206,30 @@ h1, h2, h3, h4 {
   color: var(--ink-inverse);
   --focus: #f4a3b8;
 }
+
+/* The theme toggle sits left of the title. */
+.topbar-title { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.theme-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid rgba(246, 236, 230, 0.35);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink-inverse);
+  cursor: pointer;
+}
+.theme-btn:hover { background: rgba(246, 236, 230, 0.12); }
+.theme-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.theme-btn svg { width: 18px; height: 18px; }
+/* Shows what a tap switches to: a moon in light mode, a sun in dark. */
+.theme-btn .icon-sun { display: none; }
+.theme-btn[aria-pressed="true"] .icon-sun { display: block; }
+.theme-btn[aria-pressed="true"] .icon-moon { display: none; }
 
 .topbar h1 {
   display: flex;

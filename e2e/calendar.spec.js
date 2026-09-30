@@ -398,3 +398,37 @@ test('an organizer can tap a contact to text or email it', async ({ page }) => {
     'mailto:marisol@example.com',
   );
 });
+
+test('the theme toggle switches light and dark, and remembers the choice', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto('/demo.html');
+  const toggle = page.getByRole('button', { name: 'Dark mode' });
+  const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  const light = await background();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  expect(await background()).not.toBe(light);
+
+  // Kept across a reload, and applied before the page draws.
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+  await toggle.click();
+  expect(await background()).toBe(light);
+});
+
+test('with no choice made, the theme follows the device', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto('/demo.html');
+  await expect(page.locator('html')).not.toHaveAttribute('data-theme', /./);
+  await expect(page.getByRole('button', { name: 'Dark mode' })).toHaveAttribute('aria-pressed', 'true');
+  // A light choice wins over a dark device.
+  await page.getByRole('button', { name: 'Dark mode' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  const color = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  expect(color).toBe('rgb(251, 244, 238)');
+});
