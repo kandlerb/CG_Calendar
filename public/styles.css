@@ -916,6 +916,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   .period-nav h2 { font-size: 22px; line-height: 30px; }
 }
 
+
 @media (max-width: 720px) {
   .row, .slot-editor-row { grid-template-columns: 1fr; }
   .field.narrow { max-width: none; }
@@ -1013,3 +1014,79 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .steps a { color: var(--accent); }
 .section p.hint .btn.link { font-size: 13px; }
 .subscribe-body { margin-top: 10px; }
+
+/* --- the menu button ---
+   Below 900px the header buttons fold into a menu behind ☰, so the bar stays
+   one line: the title on the left, the menu button on the right. */
+.menu-btn { display: none; }
+@media (max-width: 900px) {
+  .topbar { position: relative; flex-wrap: nowrap; }
+  .topbar-title { flex: 1 1 auto; }
+  .topbar h1 { overflow: hidden; text-overflow: ellipsis; }
+  .menu-btn {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 1px solid rgba(246, 236, 230, 0.35);
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--ink-inverse);
+    cursor: pointer;
+  }
+  .menu-btn:hover, .menu-btn[aria-expanded="true"] { background: rgba(246, 236, 230, 0.12); }
+  .menu-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .menu-btn svg { width: 22px; height: 22px; }
+
+  .topbar-actions {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: var(--space-4);
+    z-index: 30;
+    min-width: 220px;
+    max-width: calc(100vw - 2 * var(--space-4));
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    padding: var(--space-2);
+    background: var(--twilight);
+    border: 1px solid rgba(246, 236, 230, 0.2);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+  }
+  .topbar.menu-open .topbar-actions { display: flex; }
+  .topbar-actions .btn.ghost,
+  .topbar-actions .who {
+    width: 100%;
+    text-align: left;
+    border-color: transparent;
+    padding: 10px var(--space-3);
+    font-size: 15px;
+    border-radius: var(--radius-sm);
+  }
+  .topbar-actions .who {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-decoration: none;
+    opacity: 1;
+  }
+  .topbar-divider {
+    display: block;
+    width: auto;
+    height: 1px;
+    margin: 4px var(--space-2);
+  }
+}
+/* The title stays whole on narrow phones: a step down in size, not an ellipsis. */
+@media (max-width: 400px) {
+  .topbar h1 { font-size: 16px; gap: var(--space-2); }
+  .topbar-title { gap: var(--space-2); }
+}
+@media (max-width: 350px) {
+  .topbar h1 { font-size: 13.5px; }
+}

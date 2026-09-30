@@ -483,3 +483,23 @@ test('Subscribe in the header opens the calendar subscription', async ({ page })
   await dialog(page).getByRole('button', { name: 'Download a sample' }).click();
   expect((await download).suggestedFilename()).toBe('calendar.ics');
 });
+
+test('on a phone the header buttons sit behind a menu button', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 740 });
+  await page.goto('/demo.html');
+  const menu = page.getByRole('button', { name: 'Menu' });
+  await expect(menu).toBeVisible();
+  await expect(page.locator('#subscribe-btn')).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+
+  await menu.click();
+  await expect(menu).toHaveAttribute('aria-expanded', 'true');
+  await page.locator('#subscribe-btn').click();
+  await expect(dialog(page).getByRole('heading', { name: 'Subscribe to the calendar' })).toBeVisible();
+  await expect(menu).toHaveAttribute('aria-expanded', 'false');
+
+  await page.keyboard.press('Escape');
+  await menu.click();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#signout-btn')).toBeHidden();
+});

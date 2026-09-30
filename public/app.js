@@ -132,6 +132,8 @@ export function startApp(data, { onError } = {}) {
     newEvent: document.getElementById('new-event-btn'),
     help: document.getElementById('help-btn'),
     subscribe: document.getElementById('subscribe-btn'),
+    topbar: document.querySelector('.topbar'),
+    menuBtn: document.getElementById('menu-btn'),
     divider: document.querySelector('.topbar-divider'),
   };
 
@@ -244,10 +246,12 @@ export function startApp(data, { onError } = {}) {
     const member = Boolean(viewer?.isMember) && !state.gate;
     const organizer = member && Boolean(viewer?.isOrganizer);
     el.who.hidden = !member;
-    el.who.textContent = member
-      ? `${viewer.name || viewer.email}${organizer ? ' · Organizer' : ''}`
+    // "· Organizer" is its own span so a narrow phone can drop it and keep
+    // the name readable.
+    el.who.innerHTML = member
+      ? `${esc(viewer.name || viewer.email)}${organizer ? '<span class="who-role"> · Organizer</span>' : ''}`
       : '';
-    el.who.title = member ? 'Your account, calendar subscription and sign out' : '';
+    el.who.title = member ? 'Your account and sign out' : '';
     el.signOut.hidden = !viewer;
     el.newEvent.hidden = !organizer;
     if (el.subscribe) el.subscribe.hidden = !member;
@@ -1621,6 +1625,29 @@ export function startApp(data, { onError } = {}) {
   const copyLink = copyText;
 
   // --- wiring --------------------------------------------------------------
+
+  // On a narrow screen the header buttons live in a menu behind ☰. It closes
+  // on a pick, a tap anywhere else, or Escape.
+  function setMenu(open) {
+    if (!el.topbar || !el.menuBtn) return;
+    el.topbar.classList.toggle('menu-open', open);
+    el.menuBtn.setAttribute('aria-expanded', String(open));
+  }
+  document.addEventListener('click', (domEvent) => {
+    if (!el.menuBtn) return;
+    if (domEvent.target.closest('#menu-btn')) {
+      setMenu(!el.topbar.classList.contains('menu-open'));
+    } else if (el.topbar.classList.contains('menu-open')) {
+      const inMenu = domEvent.target.closest('.topbar-actions');
+      if (!inMenu || domEvent.target.closest('button, a')) setMenu(false);
+    }
+  });
+  document.addEventListener('keydown', (domEvent) => {
+    if (domEvent.key === 'Escape' && el.topbar?.classList.contains('menu-open')) {
+      setMenu(false);
+      el.menuBtn.focus();
+    }
+  });
 
   document.addEventListener('click', async (domEvent) => {
     const target = domEvent.target.closest('button');
