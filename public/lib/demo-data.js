@@ -95,8 +95,8 @@ function seed() {
             kind: 'host',
             name: 'The Parkers',
             contact: '',
-            item: '418 Walton Way',
-            note: 'Park on the street',
+            item: '',
+            note: '',
             createdBy: 'someone-else',
           },
           {

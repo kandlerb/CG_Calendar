@@ -21,20 +21,6 @@ export function slotState(slot, signups) {
 }
 
 /**
- * Where the event is. An organizer who arranged the host types the location
- * in; otherwise it is wherever the host said when they signed up (their
- * address is the sign-up's `item`; older host sign-ups put it in the note).
- * Empty while an event is still waiting for a host.
- */
-function whereItIs(event, hosts) {
-  if (event.location) return event.location;
-  return hosts
-    .map((host) => host.item || host.note)
-    .filter(Boolean)
-    .join(' · ');
-}
-
-/**
  * Decorates one event with its sign-ups, and with who may change what.
  * `todayKey` ("2026-09-02") marks events before it as past; without it no
  * event is treated as past.
@@ -58,7 +44,6 @@ export function shapeEvent(event, { userId = null, isOrganizer = false, todayKey
   return {
     ...event,
     past,
-    where: whereItIs(event, hosts),
     signups,
     hosts,
     food,

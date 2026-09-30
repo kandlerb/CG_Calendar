@@ -333,26 +333,6 @@ describe('lists', () => {
   });
 });
 
-describe('where an event is', () => {
-  it('uses the location the organizer typed in', () => {
-    assert.equal(shapeEvent(event({ needsHost: false, location: 'Riverside Park' })).where, 'Riverside Park');
-  });
-
-  it('uses the address the host gave once someone signs up to host', () => {
-    const hosted = event({ signups: [signup({ id: 'h1', kind: 'host', item: '12 Elm St', note: 'Park on the street' })] });
-    assert.equal(shapeEvent(hosted).where, '12 Elm St');
-  });
-
-  it('falls back to the note for a host who signed up before there was an address field', () => {
-    const hosted = event({ signups: [signup({ id: 'h1', kind: 'host', item: '', note: '12 Elm St' })] });
-    assert.equal(shapeEvent(hosted).where, '12 Elm St');
-  });
-
-  it('is empty while the event is still waiting for a host', () => {
-    assert.equal(shapeEvent(event()).where, '');
-  });
-});
-
 describe('events that are over', () => {
   const today = '2026-09-10';
   const over = event({ date: '2026-09-02', signups: [signup({ id: 'mine', slotId: 'main' })] });

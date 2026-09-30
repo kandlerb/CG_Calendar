@@ -74,10 +74,7 @@ export function eventFromForm(values, { id = null, allowOtherFood = true } = {})
   };
 }
 
-/**
- * A sign-up form's values, checked. Blank-looking names and dishes are
- * refused. A host's `item` is the address, which becomes the event's location.
- */
+/** A sign-up form's values, checked. Blank-looking names and dishes are refused. */
 export function signupFromForm(values, { eventId, kind, slotId = null }) {
   return {
     eventId,
@@ -85,10 +82,7 @@ export function signupFromForm(values, { eventId, kind, slotId = null }) {
     slotId: slotId || null,
     name: required(values.name, 'Enter your name.'),
     contact: text(values.contact),
-    item:
-      kind === 'food'
-        ? required(values.item, 'Say what you will bring.')
-        : required(values.item, 'Enter the address people should come to.'),
+    item: kind === 'food' ? required(values.item, 'Say what you will bring.') : '',
     note: text(values.note),
   };
 }

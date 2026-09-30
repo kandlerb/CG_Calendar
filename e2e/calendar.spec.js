@@ -190,19 +190,20 @@ test('an Upcoming card opens its event from anywhere on it, and its title is the
   await expect(dialog(page).locator('#modal-title')).toHaveText('Fall Cookout');
 });
 
-test("the host's address becomes the event's location", async ({ page }) => {
+test('a host is shown by name only, and is never asked for an address', async ({ page }) => {
   await openEvent(page, DINNER);
-  await expect(dialog(page).locator('.modal-head')).toContainText('the host gives it when they sign up');
   await dialog(page).getByRole('button', { name: 'Sign up to host' }).click();
+  await expect(dialog(page).getByLabel('Address')).toHaveCount(0);
+  await expect(dialog(page).locator('form')).toContainText('leave your address out');
   await page.getByLabel('Your name').fill('Jordan');
-  await page.getByLabel('Address').fill('12 Elm St');
   await dialog(page).locator('form').getByRole('button', { name: 'Sign up to host' }).click();
-  await expect(dialog(page).locator('.modal-head .where')).toHaveText('12 Elm St · hosted by Jordan');
+  await expect(dialog(page).locator('.modal-head')).toContainText('Hosted by Jordan');
 
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Upcoming' }).click();
   const card = page.locator('.agenda-card').filter({ hasText: 'Week 1' });
-  await expect(card.locator('.where')).toHaveText('12 Elm St');
+  await expect(card).toContainText('Hosted by Jordan');
+  await expect(card.locator('.where')).toHaveCount(0);
 });
 
 test('a visitor can change what their own sign-up says', async ({ page }) => {
@@ -229,7 +230,7 @@ test('a past event can be read but not signed up for', async ({ page }) => {
   await page.locator('.agenda-card').filter({ hasText: 'Week 0' }).getByRole('button').click();
 
   await expect(dialog(page).locator('.summary')).toHaveText('This event has passed.');
-  await expect(dialog(page)).toContainText('418 Walton Way');
+  await expect(dialog(page).locator('.modal-head')).toContainText('Hosted by The Parkers');
   await expect(dialog(page).locator('[data-open-form]')).toHaveCount(0);
   await expect(dialog(page).locator('[data-cancel-signup]')).toHaveCount(0);
 });

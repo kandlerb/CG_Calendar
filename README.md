@@ -168,8 +168,8 @@ sign-up for them.
 2. Send the group the link. "Copy link to this event" inside an event gives a
    link that opens straight to that week.
 3. If the event is still looking for a host, someone taps **Sign up to
-   host** and gives the address. That address then shows as the event's
-   location everywhere, with a note for things like where to park.
+   host**. The page shows only the host's name, never an address; share the
+   address with the group separately.
 4. Everyone else picks a food slot and types what they're bringing. A slot
    never closes: once it has the number you asked for it shows as covered, and
    anyone who wants to add another side dish still can. Each person's own
@@ -243,8 +243,7 @@ weekly won't hit that.
 ## What this is not
 
 The share link is unlisted, not secret. Anyone who has it can read the calendar
-— names, dishes, notes and hosts' addresses, though not phone numbers or
-emails — and add a
+— names, dishes and notes, though not phone numbers or emails — and add a
 sign-up under any name — that's the trade-off that keeps it
 frictionless for a community group, but it means the calendar shouldn't hold
 anything you'd mind being forwarded. The restriction that *is* enforced is on

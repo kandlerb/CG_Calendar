@@ -305,7 +305,7 @@ export function startApp(data, { onError } = {}) {
       wanted ? 'Needs a host.' : '',
       event.mine.length ? 'You signed up.' : '',
     ].filter(Boolean);
-    const tip = [`${event.title}, ${time}`, event.where, ...status].filter(Boolean).join('. ');
+    const tip = [`${event.title}, ${time}`, event.location, ...status].filter(Boolean).join('. ');
     return `<button type="button" class="chip${wanted ? ' needs-host' : ''}${
       event.mine.length ? ' mine' : ''
     }${event.past ? ' past' : ''}" data-event="${esc(event.id)}" title="${esc(tip)}">
@@ -369,7 +369,7 @@ export function startApp(data, { onError } = {}) {
     return `<article class="agenda-card${event.past ? ' past' : ''}">
       <p class="when">${esc(formatLongDate(event.date))} · ${esc(formatTimeRange(event))}</p>
       <h3><button type="button" class="agenda-open" data-event="${esc(event.id)}">${esc(event.title)}</button></h3>
-      ${event.where ? `<p class="where">${esc(event.where)}</p>` : ''}
+      ${event.location ? `<p class="where">${esc(event.location)}</p>` : ''}
       ${badgeHtml(eventBadges(event))}
       <span class="agenda-cue" aria-hidden="true">${event.past ? 'See who came →' : 'Open to sign up →'}</span>
     </article>`;
@@ -639,23 +639,26 @@ export function startApp(data, { onError } = {}) {
                  value="${value('contact', CONTACT_KEY)}" />
         </div>
       </div>
-      <div class="field">
-        <label for="su-item">${host ? 'Address' : 'What you will bring'}</label>
-        <input id="su-item" name="item" maxlength="${LIMITS.item}" value="${value('item')}"
-               ${host ? 'autocomplete="street-address"' : ''} placeholder="${
-                 host ? 'e.g. 12 Elm St, Augusta' : 'e.g. chicken enchiladas for 12'
-               }" required />
-      </div>
+      ${
+        host
+          ? ''
+          : `<div class="field">
+              <label for="su-item">What you will bring</label>
+              <input id="su-item" name="item" maxlength="${LIMITS.item}" value="${value('item')}"
+                     placeholder="e.g. chicken enchiladas for 12" required />
+            </div>`
+      }
       <div class="field">
         <label for="su-note">Note <span class="help">(optional)</span></label>
         <input id="su-note" name="note" maxlength="${LIMITS.note}" value="${value('note')}" placeholder="${
-          host ? 'Parking, gate code, pets…' : 'Gluten free, needs oven space…'
+          host ? 'Pets, kids welcome, anything to know…' : 'Gluten free, needs oven space…'
         }" />
       </div>
       <p class="hint">${
-        host ? 'Your name, the address' : 'Your name, what you bring'
-      } and your note are visible to anyone with the link. Your phone or email is shown only to the
-        organizers. No email is sent.</p>
+        host
+          ? 'Your name and note are visible to anyone with the link, so leave your address out; it is shared with the group separately.'
+          : 'Your name, what you bring and your note are visible to anyone with the link.'
+      } Your phone or email is shown only to the organizers. No email is sent.</p>
       <p class="error" data-error hidden></p>
       <div class="form-actions">
         <button type="submit" class="btn primary">${
@@ -686,7 +689,7 @@ export function startApp(data, { onError } = {}) {
           : `<p class="hint">${
               event.past
                 ? 'Nobody signed up to host.'
-                : 'Nobody has signed up to host yet. The host gives the address when they sign up.'
+                : 'Nobody has signed up to host yet.'
             }</p>`
       }
       ${
@@ -763,16 +766,13 @@ export function startApp(data, { onError } = {}) {
         <div>
           <h2 id="modal-title">${esc(event.title)}</h2>
           <p class="when">${esc(formatLongDate(event.date))} · ${esc(formatTimeRange(event))}</p>
+          ${event.location ? `<p class="when">${esc(event.location)}</p>` : ''}
           ${
-            event.where
-              ? `<p class="where">${esc(event.where)}${
-                  event.hosts.length
-                    ? ` <span class="muted">· hosted by ${esc(event.hosts.map((h) => h.name).join(', '))}</span>`
-                    : ''
-                }</p>`
-              : event.needsHost && !event.past
-                ? '<p class="when">Location: the host gives it when they sign up.</p>'
-                : ''
+            // Only the host's name: their address is shared with the group
+            // separately, never on this page.
+            event.hosts.length
+              ? `<p class="when">Hosted by ${esc(event.hosts.map((h) => h.name).join(', '))}</p>`
+              : ''
           }
         </div>
         <button type="button" class="close" data-close aria-label="Close">&times;</button>
@@ -881,7 +881,7 @@ export function startApp(data, { onError } = {}) {
             <input id="ev-host-limit" name="hostLimit" type="number" min="1" value="${esc(
               event?.hostLimit || 1,
             )}" />
-            <span class="help">The host enters the address when they sign up.</span>
+            <span class="help">Only the host's name is shown; share the address with the group separately.</span>
           </div>
           <div class="checkbox">
             <input id="ev-host-set" name="hosting" type="radio" value="set" ${
