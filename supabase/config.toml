@@ -1,0 +1,7 @@
+# Only what the Supabase CLI needs to deploy the calendar feed the same way it
+# is deployed now. The rest of the project is configured in the dashboard.
+
+[functions.calendar-feed]
+# Calendar apps cannot send a Supabase login; the token in the feed link is
+# the check (see supabase/functions/calendar-feed/index.ts).
+verify_jwt = false

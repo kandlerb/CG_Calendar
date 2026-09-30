@@ -24,12 +24,63 @@ describe('demo data source', () => {
     assert.equal(data.viewer().name, 'Kandler Baker');
   });
 
-  it('has no display name to set until you are an organizer', async () => {
-    await assert.rejects(() => data.setName('Nobody'), /organizers/i);
+  it('lets a member set their own display name', async () => {
+    const viewer = await data.setName('Anna Smith');
+    assert.equal(viewer.name, 'Anna Smith');
   });
 
-  it('starts as a visitor, not an organizer', () => {
+  it('starts as a signed-in member, not an organizer', () => {
+    assert.equal(data.viewer().isMember, true);
     assert.equal(data.viewer().isOrganizer, false);
+  });
+
+  it('shows nothing once signed out', async () => {
+    await data.signOut();
+    assert.equal(data.viewer(), null);
+    await assert.rejects(() => data.loadEvents(), /join the group/);
+  });
+
+  it('joins a new account with the right invite code, ignoring case', async () => {
+    await data.signOut();
+    const result = await data.signUp({ email: 'new@example.com', password: 'pw', displayName: 'New', inviteCode: ' DEMO ' });
+    assert.equal(result.joinError, null);
+    assert.equal(result.viewer.isMember, true);
+    assert.equal(result.viewer.name, 'New');
+  });
+
+  it('keeps a new account out until the invite code is right', async () => {
+    await data.signOut();
+    const result = await data.signUp({ email: 'new@example.com', password: 'pw', displayName: 'New', inviteCode: 'nope' });
+    assert.match(result.joinError, /invite code/);
+    assert.equal(data.viewer().isMember, false);
+    await assert.rejects(() => data.loadEvents(), /join the group/);
+    await data.joinGroup('demo', 'New');
+    assert.equal(data.viewer().isMember, true);
+  });
+
+  it('keeps event editing for organizers', async () => {
+    await assert.rejects(() => data.saveEvent({ title: 'Mine', date: '2026-10-01' }, []), /organizers/);
+    await assert.rejects(() => data.getInviteCode(), /organizers/);
+  });
+
+  it('lets an organizer change the code and remove a member, but not another organizer', async () => {
+    await data.signIn('org@example.com', 'pw');
+    await data.setInviteCode('new-code-2026');
+    assert.equal(await data.getInviteCode(), 'new-code-2026');
+    const members = await data.listMembers();
+    const marisol = members.find((m) => m.name === 'Marisol');
+    await data.setMemberRemoved(marisol.id, true);
+    assert.equal((await data.listMembers()).find((m) => m.id === marisol.id).removed, true);
+    const organizer = members.find((m) => m.isOrganizer);
+    await assert.rejects(() => data.setMemberRemoved(organizer.id, true), /Organizers cannot/);
+  });
+
+  it('keeps a host address apart from the note', async () => {
+    const event = await firstEvent();
+    await data.addSignup({ eventId: event.id, kind: 'host', name: 'Anna', note: 'Side door', address: '12 Oak St' });
+    const host = (await firstEvent()).signups.find((s) => s.kind === 'host');
+    assert.equal(host.address, '12 Oak St');
+    assert.equal(host.note, 'Side door');
   });
 
   it('refuses a second host', async () => {
@@ -100,6 +151,7 @@ describe('demo data source', () => {
   });
 
   it('removes an event with everything on it', async () => {
+    await data.signIn('demo@example.com', 'anything');
     const event = await firstEvent();
     await data.deleteEvent(event.id);
     assert.equal((await data.loadEvents()).some((e) => e.id === event.id), false);

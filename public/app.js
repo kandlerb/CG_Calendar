@@ -65,10 +65,22 @@ const remembered = {
   },
 };
 
+/** The event a link like "…/#event=<id>" asks to open, or null. */
+function eventFromHash(hash) {
+  const match = String(hash ?? '').match(/^#event=([^&]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 export function startApp(data, { onError } = {}) {
   const storedView = remembered.read(VIEW_KEY);
   const state = {
     viewer: null,
+    // Set while the sign-in screen stands in for the calendar:
+    // { mode, notice, values } — see renderGate().
+    gate: null,
+    // An event link opened before signing in. Held here so the event opens
+    // once the person is in, rather than being lost behind the sign-in screen.
+    pendingEvent: eventFromHash(location.hash),
     events: [],
     loading: true,
     // Someone who has picked a view keeps it. Everyone else gets the one that
@@ -82,6 +94,7 @@ export function startApp(data, { onError } = {}) {
 
   const el = {
     loading: document.getElementById('loading'),
+    gate: document.getElementById('gate'),
     intro: document.getElementById('intro'),
     viewNote: document.getElementById('view-note'),
     toolbar: document.querySelector('.toolbar'),
@@ -92,7 +105,6 @@ export function startApp(data, { onError } = {}) {
     modalRoot: document.getElementById('modal-root'),
     toast: document.getElementById('toast'),
     who: document.getElementById('who'),
-    signIn: document.getElementById('signin-btn'),
     signOut: document.getElementById('signout-btn'),
     newEvent: document.getElementById('new-event-btn'),
     help: document.getElementById('help-btn'),
@@ -144,11 +156,13 @@ export function startApp(data, { onError } = {}) {
         <li><strong>Open the event.</strong> It shows the time, the location, the host, and which food slots
           are unfilled.</li>
         <li><strong>Sign up.</strong> Take the host slot if the event still needs one, or pick a food
-          slot and enter what you are bringing. No account is required.</li>
+          slot and enter what you are bringing.</li>
+        <li><strong>Add it to your calendar.</strong> Open <strong>your name</strong> at the top and subscribe,
+          and every event shows up in your phone's calendar with who is bringing what.</li>
       </ol>
       <p class="hint">
-        To change or remove a sign-up, reopen the event. Sign-ups are identified by this browser, not by an
-        account, so use the same browser each time.
+        To change or remove a sign-up, reopen the event. Your sign-ups follow your account, so any device
+        you sign in on works.
       </p>
       ${
         organizer
@@ -179,17 +193,29 @@ export function startApp(data, { onError } = {}) {
   // --- chrome --------------------------------------------------------------
 
   function renderAuth() {
-    const organizer = Boolean(state.viewer?.isOrganizer);
-    el.who.hidden = !organizer;
-    el.who.textContent = organizer ? `Organizer: ${state.viewer.name || state.viewer.email}` : '';
-    el.who.title = organizer ? 'Change how your name appears here' : '';
-    el.signOut.hidden = !organizer;
+    const viewer = state.viewer;
+    const member = Boolean(viewer?.isMember) && !state.gate;
+    const organizer = member && Boolean(viewer?.isOrganizer);
+    el.who.hidden = !member;
+    el.who.textContent = member
+      ? `${viewer.name || viewer.email}${organizer ? ' · Organizer' : ''}`
+      : '';
+    el.who.title = member ? 'Your account, calendar subscription and sign out' : '';
+    el.signOut.hidden = !viewer;
     el.newEvent.hidden = !organizer;
-    el.signIn.hidden = organizer;
+    if (el.help) el.help.hidden = Boolean(state.gate);
   }
 
   function render() {
     renderAuth();
+    if (el.gate) el.gate.hidden = !state.gate;
+    if (state.gate) {
+      for (const node of [el.loading, el.toolbar, el.calendar, el.agenda, el.viewNote, el.intro]) {
+        if (node) node.hidden = true;
+      }
+      renderGate();
+      return;
+    }
     if (el.loading) el.loading.hidden = !state.loading;
     if (el.toolbar) el.toolbar.hidden = state.loading;
     if (state.loading) {
@@ -347,6 +373,261 @@ export function startApp(data, { onError } = {}) {
       .join('');
   }
 
+  // --- the sign-in screen ----------------------------------------------------
+  //
+  // Stands in for the calendar until the person is a member: signed out, still
+  // to enter the invite code, removed, or back from a password reset link.
+
+  function noticeHtml(notice) {
+    if (!notice) return '';
+    return `<p class="${notice.tone === 'error' ? 'error' : 'notice'}" role="status">${esc(notice.text)}</p>`;
+  }
+
+  function gateTabs(mode) {
+    return `<div class="gate-tabs" role="tablist">
+      <button type="button" class="btn toggle" role="tab" data-gate="signin"
+              aria-selected="${mode === 'signin'}" aria-pressed="${mode === 'signin'}">Sign in</button>
+      <button type="button" class="btn toggle" role="tab" data-gate="create"
+              aria-selected="${mode === 'create'}" aria-pressed="${mode === 'create'}">Create account</button>
+    </div>`;
+  }
+
+  function gateHtml({ mode, notice, values = {} }) {
+    const email = esc(values.email ?? '');
+    const eventNote = state.pendingEvent
+      ? '<p class="hint">Sign in and the event you opened will be waiting.</p>'
+      : '';
+
+    if (mode === 'recovery') {
+      return `<h2>Choose a new password</h2>
+        ${noticeHtml(notice)}
+        <form class="signup" data-form="gate-recovery">
+          <div class="field">
+            <label for="gate-new-password">New password</label>
+            <input id="gate-new-password" name="password" type="password" autocomplete="new-password"
+                   minlength="6" data-autofocus required />
+          </div>
+          <div class="field">
+            <label for="gate-new-password-2">Type it again</label>
+            <input id="gate-new-password-2" name="confirm" type="password" autocomplete="new-password"
+                   minlength="6" required />
+          </div>
+          <p class="error" data-error hidden></p>
+          <div class="form-actions"><button type="submit" class="btn primary">Save password</button></div>
+        </form>`;
+    }
+
+    if (mode === 'join') {
+      return `<h2>Enter the invite code</h2>
+        <p>You're signed in as <strong>${esc(state.viewer?.email ?? '')}</strong>. The calendar is for
+          group members — ask an organizer for the group's invite code.</p>
+        ${noticeHtml(notice)}
+        <form class="signup" data-form="gate-join">
+          <div class="field">
+            <label for="gate-join-name">Your name</label>
+            <input id="gate-join-name" name="name" maxlength="80" autocomplete="name"
+                   value="${esc(values.name ?? state.viewer?.name ?? '')}" required />
+          </div>
+          <div class="field">
+            <label for="gate-join-code">Invite code</label>
+            <input id="gate-join-code" name="code" autocomplete="off" autocapitalize="none"
+                   value="${esc(values.code ?? '')}" data-autofocus required />
+          </div>
+          <p class="error" data-error hidden></p>
+          <div class="form-actions">
+            <button type="submit" class="btn primary">Join the group</button>
+            <button type="button" class="btn ghost" data-gate-signout>Use a different account</button>
+          </div>
+        </form>`;
+    }
+
+    if (mode === 'removed') {
+      return `<h2>This account was removed from the group</h2>
+        <p>An organizer removed <strong>${esc(state.viewer?.email ?? 'this account')}</strong>, so the
+          calendar and its subscription are turned off for it. If that's a mistake, ask an organizer to
+          restore it.</p>
+        <div class="form-actions"><button type="button" class="btn" data-gate-signout>Sign out</button></div>`;
+    }
+
+    if (mode === 'confirm') {
+      return `<h2>Check your email</h2>
+        <p>We sent a link to <strong>${email}</strong>. Open it to confirm your address, then sign in —
+          you'll be asked for the invite code once more.</p>
+        <div class="form-actions"><button type="button" class="btn" data-gate="signin">Back to sign in</button></div>`;
+    }
+
+    if (mode === 'forgot') {
+      return `<h2>Reset your password</h2>
+        <p>Enter your account's email and we'll send a link to choose a new password.</p>
+        ${noticeHtml(notice)}
+        <form class="signup" data-form="gate-forgot">
+          <div class="field">
+            <label for="gate-forgot-email">Email</label>
+            <input id="gate-forgot-email" name="email" type="email" autocomplete="username"
+                   value="${email}" data-autofocus required />
+          </div>
+          <p class="error" data-error hidden></p>
+          <div class="form-actions">
+            <button type="submit" class="btn primary">Send reset link</button>
+            <button type="button" class="btn ghost" data-gate="signin">Back to sign in</button>
+          </div>
+        </form>`;
+    }
+
+    if (mode === 'create') {
+      return `${gateTabs(mode)}
+        <p>New here? You'll need the group's <strong>invite code</strong> from an organizer.</p>
+        ${eventNote}
+        ${noticeHtml(notice)}
+        <form class="signup" data-form="gate-create">
+          <div class="field">
+            <label for="gate-create-name">Your name</label>
+            <input id="gate-create-name" name="name" maxlength="80" autocomplete="name"
+                   value="${esc(values.name ?? '')}" data-autofocus required />
+            <span class="help">How you appear to the group, like "Anna Smith".</span>
+          </div>
+          <div class="field">
+            <label for="gate-create-email">Email</label>
+            <input id="gate-create-email" name="email" type="email" autocomplete="username" value="${email}" required />
+          </div>
+          <div class="field">
+            <label for="gate-create-password">Password</label>
+            <input id="gate-create-password" name="password" type="password" autocomplete="new-password"
+                   minlength="6" required />
+            <span class="help">At least 6 characters.</span>
+          </div>
+          <div class="field">
+            <label for="gate-create-code">Invite code</label>
+            <input id="gate-create-code" name="code" autocomplete="off" autocapitalize="none"
+                   value="${esc(values.code ?? '')}" required />
+          </div>
+          <p class="error" data-error hidden></p>
+          <div class="form-actions"><button type="submit" class="btn primary">Create account</button></div>
+        </form>`;
+    }
+
+    return `${gateTabs('signin')}
+      ${eventNote}
+      ${noticeHtml(notice)}
+      <form class="signup" data-form="gate-signin">
+        <div class="field">
+          <label for="gate-email">Email</label>
+          <input id="gate-email" name="email" type="email" autocomplete="username" value="${email}"
+                 data-autofocus required />
+        </div>
+        <div class="field">
+          <label for="gate-password">Password</label>
+          <input id="gate-password" name="password" type="password" autocomplete="current-password" required />
+        </div>
+        <p class="error" data-error hidden></p>
+        <div class="form-actions">
+          <button type="submit" class="btn primary">Sign in</button>
+          <button type="button" class="btn link" data-gate="forgot">Forgot password?</button>
+        </div>
+      </form>`;
+  }
+
+  function renderGate() {
+    if (!el.gate || !state.gate) return;
+    el.gate.innerHTML = `<div class="gate-card">${gateHtml(state.gate)}</div>`;
+    el.gate.querySelector('[data-autofocus]')?.focus();
+  }
+
+  function showGate(mode, { notice = null, values = {} } = {}) {
+    state.gate = { mode, notice, values };
+    state.loading = false;
+    if (state.modal) closeModal();
+    render();
+  }
+
+  /**
+   * Decides what the person sees: the right sign-in step, or the calendar.
+   * Called at start-up and after anything that changes who they are.
+   */
+  async function enter({ notice = null } = {}) {
+    const viewer = state.viewer;
+    const redirect = data.authRedirect();
+    if (viewer && redirect.recovery) return showGate('recovery', { notice });
+    if (!viewer) return showGate('signin', { notice: notice ?? (redirect.error ? { tone: 'error', text: redirect.error } : null) });
+    if (viewer.removed) return showGate('removed');
+    if (!viewer.isMember) return showGate('join', { notice });
+
+    state.gate = null;
+    state.loading = true;
+    render();
+    await reload();
+    state.loading = false;
+    const pending = state.pendingEvent ? eventById(state.pendingEvent) : null;
+    state.pendingEvent = null;
+    if (pending) {
+      state.cursor = startOfMonth(parseISODate(pending.date));
+      history.replaceState(null, '', `#event=${encodeURIComponent(pending.id)}`);
+      state.modal = { type: 'event', eventId: pending.id, form: null };
+    }
+    renderIntro();
+    render();
+    renderModal();
+  }
+
+  /** A write found no session: back to the sign-in screen, keeping the event open. */
+  function signedOut(err) {
+    if (state.modal?.eventId) state.pendingEvent = state.modal.eventId;
+    state.viewer = null;
+    showGate('signin', { notice: { tone: 'error', text: err.message } });
+  }
+
+  const formValues = (form) =>
+    Object.fromEntries([...new FormData(form).entries()].map(([k, v]) => [k, String(v).trim()]));
+
+  async function submitGateForm(form) {
+    const kind = form.dataset.form;
+    const values = formValues(form);
+    if (kind === 'gate-signin') {
+      state.viewer = await data.signIn(values.email, String(new FormData(form).get('password') ?? ''));
+      await enter();
+      if (state.viewer?.isMember) toast(`Signed in as ${state.viewer.name || state.viewer.email}.`);
+    } else if (kind === 'gate-create') {
+      const result = await data.signUp({
+        email: values.email,
+        password: new FormData(form).get('password'),
+        displayName: values.name,
+        inviteCode: values.code,
+      });
+      if (result.confirmEmail) {
+        showGate('confirm', { values: { email: values.email } });
+        return;
+      }
+      state.viewer = result.viewer;
+      if (result.joinError) {
+        showGate('join', { notice: { tone: 'error', text: result.joinError }, values: { name: values.name } });
+        return;
+      }
+      await enter();
+      toast(`Welcome, ${state.viewer.name}!`);
+    } else if (kind === 'gate-join') {
+      state.viewer = await data.joinGroup(values.code, values.name);
+      await enter();
+      toast(`Welcome, ${state.viewer.name}!`);
+    } else if (kind === 'gate-forgot') {
+      await data.requestPasswordReset(values.email);
+      showGate('signin', {
+        values: { email: values.email },
+        notice: {
+          tone: 'ok',
+          text: `If there's an account for ${values.email}, a reset link is on its way. Check your spam folder too.`,
+        },
+      });
+    } else if (kind === 'gate-recovery') {
+      const password = String(new FormData(form).get('password') ?? '');
+      if (password !== String(new FormData(form).get('confirm') ?? '')) {
+        throw new Error('The two passwords are different.');
+      }
+      state.viewer = await data.updatePassword(password);
+      await enter();
+      toast('Password changed.');
+    }
+  }
+
   // --- modals --------------------------------------------------------------
 
   let returnFocusTo = null;
@@ -393,8 +674,8 @@ export function startApp(data, { onError } = {}) {
       return;
     }
     let html = '';
-    if (modal.type === 'login') html = loginModalHtml();
-    else if (modal.type === 'rename') html = renameModalHtml();
+    if (modal.type === 'account') html = accountModalHtml(modal);
+    else if (modal.type === 'group') html = groupModalHtml(modal);
     else if (modal.type === 'eventForm')
       html = eventFormHtml(modal.eventId ? eventById(modal.eventId) : null, modal.date);
     else {
@@ -432,54 +713,157 @@ export function startApp(data, { onError } = {}) {
     }
   }
 
-  function loginModalHtml() {
-    return `
-      <div class="modal-head">
-        <div>
-          <h2 id="modal-title">Organizer sign in</h2>
-          <p class="when">Required for organizers only. Signing up for an event does not need an account.</p>
-        </div>
-        <button type="button" class="close" data-close aria-label="Close">&times;</button>
-      </div>
-      <form class="signup" data-form="login">
-        <div class="field">
-          <label for="login-email">Email</label>
-          <input id="login-email" name="email" type="email" autocomplete="username" data-autofocus required />
-        </div>
-        <div class="field">
-          <label for="login-password">Password</label>
-          <input id="login-password" name="password" type="password" autocomplete="current-password" required />
-        </div>
-        <p class="error" data-error hidden></p>
+  function accountModalHtml(modal) {
+    const viewer = state.viewer ?? {};
+    const links = data.feedLinks?.() ?? null;
+    let feed = '<p class="hint">Your calendar link is not ready yet. Reload the page and try again.</p>';
+    if (links?.webcal) {
+      feed = `<p class="hint">Subscribe once and every event appears in your phone's calendar, with the
+          address, who is hosting, and who is bringing what. It keeps itself up to date.</p>
         <div class="form-actions">
-          <button type="submit" class="btn primary">Sign in</button>
-          <button type="button" class="btn ghost" data-close>Cancel</button>
+          <a class="btn primary" href="${esc(links.webcal)}">Subscribe in Apple Calendar or Outlook</a>
+          <button type="button" class="btn" data-copy-feed>Copy link for Google Calendar</button>
         </div>
-      </form>`;
-  }
-
-  function renameModalHtml() {
-    const current = state.viewer?.name ?? '';
+        <details class="steps">
+          <summary>How to add it to Google Calendar</summary>
+          <ol>
+            <li>Tap <strong>Copy link for Google Calendar</strong> above.</li>
+            <li>On a computer, open <a href="https://calendar.google.com/calendar/r/settings/addbyurl"
+                rel="noreferrer noopener" target="_blank">Google Calendar → Add calendar → From URL</a>.</li>
+            <li>Paste the link and choose <strong>Add calendar</strong>. It appears on your phone too.</li>
+          </ol>
+        </details>
+        <p class="hint">Changes reach Apple Calendar and Outlook within about an hour. Google Calendar
+          checks less often — it can take up to a day. Tapping the link in an event opens it here; the
+          first time from inside Outlook you may need to sign in.</p>
+        <p class="hint">The link is personal: anyone who has it can see the calendar.
+          <button type="button" class="btn link danger" data-reset-feed>Reset my link</button>
+          turns off the old one if it got shared.</p>`;
+    } else if (links?.sample) {
+      feed = `<p class="hint">On the real calendar this is where you subscribe from Apple Calendar,
+          Google Calendar or Outlook. The demo can't serve a live feed, but you can download a sample of
+          what it contains.</p>
+        <div class="form-actions"><button type="button" class="btn" data-download-feed>Download a sample</button></div>`;
+    }
     return `
       <div class="modal-head">
         <div>
-          <h2 id="modal-title">Your name</h2>
-          <p class="when">How you appear in the header. Only you can change it.</p>
+          <h2 id="modal-title">Your account</h2>
+          <p class="when">${esc(viewer.email ?? '')}${viewer.isOrganizer ? ' · Organizer' : ''}</p>
         </div>
         <button type="button" class="close" data-close aria-label="Close">&times;</button>
       </div>
       <form class="signup" data-form="rename">
         <div class="field">
-          <label for="rename-name">Name</label>
-          <input id="rename-name" name="name" maxlength="80" value="${esc(current)}"
-                 placeholder="${esc(state.viewer?.email ?? '')}" data-autofocus required />
+          <label for="rename-name">Your name</label>
+          <input id="rename-name" name="name" maxlength="80" value="${esc(viewer.name ?? '')}"
+                 autocomplete="name" required />
+          <span class="help">Shown in the header and filled in when you sign up for something.</span>
         </div>
         <p class="error" data-error hidden></p>
+        <div class="form-actions"><button type="submit" class="btn">Save name</button></div>
+      </form>
+      <div class="section">
+        <h3>Add the calendar to your phone</h3>
+        ${feed}
+      </div>
+      ${
+        viewer.isOrganizer
+          ? `<div class="section">
+               <h3>Organizer</h3>
+               <p class="hint">The invite code new people need, and who has joined.</p>
+               <button type="button" class="btn" data-open-group>Invite code and members</button>
+             </div>`
+          : ''
+      }
+      <div class="section footer-actions">
         <div class="form-actions">
-          <button type="submit" class="btn primary">Save</button>
-          <button type="button" class="btn ghost" data-close>Cancel</button>
+          <button type="button" class="btn" data-account-signout>Sign out</button>
+          <button type="button" class="btn ghost push-right" data-close>Close</button>
         </div>
-      </form>`;
+      </div>`;
+  }
+
+  function memberRowHtml(member) {
+    const joined = member.joinedAt ? formatShortDate(String(member.joinedAt).slice(0, 10)) : '';
+    return `<div class="slot person">
+      <div>
+        <span class="slot-label">${esc(member.name)}${
+          member.isOrganizer ? '<span class="pill">Organizer</span>' : ''
+        }${member.removed ? '<span class="pill muted">Removed</span>' : ''}</span>
+        <div class="slot-people">${esc(member.email)}${joined ? ` · joined ${esc(joined)}` : ''}</div>
+      </div>
+      <div class="slot-actions">
+        ${
+          member.isOrganizer
+            ? ''
+            : member.removed
+              ? `<button type="button" class="btn small" data-member-restore="${esc(member.id)}">Restore</button>`
+              : `<button type="button" class="btn link danger" data-member-remove="${esc(member.id)}"
+                   data-member-name="${esc(member.name)}">Remove</button>`
+        }
+      </div>
+    </div>`;
+  }
+
+  function groupModalHtml(modal) {
+    const body = modal.error
+      ? `<p class="error">${esc(modal.error)}</p>`
+      : modal.loading
+        ? '<p class="hint">Loading…</p>'
+        : `<form class="signup" data-form="invite">
+             <div class="field">
+               <label for="invite-code">Invite code</label>
+               <input id="invite-code" name="code" minlength="6" maxlength="80" autocomplete="off"
+                      value="${esc(modal.inviteCode ?? '')}" required />
+               <span class="help">Share it with people you want in the group, along with the calendar link.
+                 Capital letters and spaces around it don't matter.</span>
+             </div>
+             <p class="error" data-error hidden></p>
+             <div class="form-actions">
+               <button type="submit" class="btn primary">Save code</button>
+               <button type="button" class="btn" data-copy-invite>Copy code</button>
+             </div>
+             <p class="hint">Changing it only affects new accounts; everyone who already joined stays in.</p>
+           </form>
+           <div class="section">
+             <h3>Members <span class="section-note">${esc(
+               String(modal.members.filter((m) => !m.removed).length),
+             )} in the group</span></h3>
+             <p class="hint">Removing someone turns off their access and their calendar feed straight
+               away; their past sign-ups stay. If they know the invite code they could still make a new
+               account, so change the code too if that matters.</p>
+             ${modal.members.map(memberRowHtml).join('') || '<p class="hint">Nobody has joined yet.</p>'}
+           </div>`;
+    return `
+      <div class="modal-head">
+        <div>
+          <h2 id="modal-title">Invite code and members</h2>
+          <p class="when">Only organizers see this.</p>
+        </div>
+        <button type="button" class="close" data-close aria-label="Close">&times;</button>
+      </div>
+      ${body}
+      <div class="section footer-actions">
+        <div class="form-actions">
+          <button type="button" class="btn" data-open-account>Back to your account</button>
+          <button type="button" class="btn ghost push-right" data-close>Close</button>
+        </div>
+      </div>`;
+  }
+
+  async function openGroup() {
+    openModal({ type: 'group', loading: true, members: [] });
+    try {
+      const [inviteCode, members] = await Promise.all([data.getInviteCode(), data.listMembers()]);
+      if (state.modal?.type !== 'group') return;
+      state.modal = { type: 'group', loading: false, inviteCode, members };
+    } catch (err) {
+      if (err.signedOut) throw err;
+      if (state.modal?.type !== 'group') return;
+      state.modal = { type: 'group', loading: false, error: err.message, members: [] };
+    }
+    renderModal();
   }
 
   function signupLine(signup, { nested = false } = {}) {
@@ -490,6 +874,7 @@ export function startApp(data, { onError } = {}) {
           signup.isMine ? '<span class="pill">You</span>' : ''
         }</span>
         ${details ? `<div class="slot-people">${esc(details)}</div>` : ''}
+        ${signup.address ? `<div class="slot-people">${esc(signup.address)}</div>` : ''}
         ${signup.contact ? `<div class="slot-people">${esc(signup.contact)}</div>` : ''}
       </div>
       <div class="slot-actions">
@@ -516,7 +901,9 @@ export function startApp(data, { onError } = {}) {
       <div class="row">
         <div class="field">
           <label for="su-name">Your name</label>
-          <input id="su-name" name="name" value="${esc(remembered.read(NAME_KEY))}" data-autofocus required />
+          <input id="su-name" name="name" maxlength="80" value="${esc(
+            state.viewer?.name || remembered.read(NAME_KEY),
+          )}" data-autofocus required />
         </div>
         <div class="field">
           <label for="su-contact">Phone or email <span class="help">(optional)</span></label>
@@ -531,13 +918,23 @@ export function startApp(data, { onError } = {}) {
             </div>`
           : ''
       }
+      ${
+        kind === 'host'
+          ? `<div class="field">
+              <label for="su-address">Address <span class="help">(optional)</span></label>
+              <input id="su-address" name="address" maxlength="200" autocomplete="street-address"
+                     placeholder="e.g. 12 Oak St, Augusta, GA 30901" />
+              <span class="help">A full street address shows on the map in everyone's calendar.</span>
+            </div>`
+          : ''
+      }
       <div class="field">
         <label for="su-note">Note <span class="help">(optional)</span></label>
-        <input id="su-note" name="note" placeholder="${esc(
-          kind === 'host' ? 'Address, parking notes…' : 'Gluten free, needs oven space…',
+        <input id="su-note" name="note" maxlength="280" placeholder="${esc(
+          kind === 'host' ? 'Parking, which door to use…' : 'Gluten free, needs oven space…',
         )}" />
       </div>
-      <p class="hint">Your name and note are visible to anyone with the link. No email is sent.</p>
+      <p class="hint">Everyone in the group can see your sign-up. No email is sent.</p>
       <p class="error" data-error hidden></p>
       <div class="form-actions">
         <button type="submit" class="btn primary">${kind === 'host' ? 'Sign up to host' : 'Add sign-up'}</button>
@@ -700,7 +1097,7 @@ export function startApp(data, { onError } = {}) {
       <div class="modal-head">
         <div>
           <h2 id="modal-title">${editing ? 'Edit event' : 'New event'}</h2>
-          <p class="when">Visible to anyone with the link.</p>
+          <p class="when">Visible to everyone in the group.</p>
         </div>
         <button type="button" class="close" data-close aria-label="Close">&times;</button>
       </div>
@@ -756,7 +1153,7 @@ export function startApp(data, { onError } = {}) {
             <input id="ev-host-limit" name="hostLimit" type="number" min="1" value="${esc(
               event?.hostLimit || 1,
             )}" />
-            <span class="help">The host adds the address in their sign-up note.</span>
+            <span class="help">The host enters the address when they sign up.</span>
           </div>
           <div class="checkbox">
             <input id="ev-host-set" name="hosting" type="radio" value="set" ${
@@ -765,10 +1162,10 @@ export function startApp(data, { onError } = {}) {
             <label for="ev-host-set">Host is arranged — show the location instead</label>
           </div>
           <div class="field indented wide" data-show-when="hosting=set" ${needsHost ? 'hidden' : ''}>
-            <label for="ev-location">Location</label>
-            <input id="ev-location" name="location" placeholder="e.g. the Smiths' home" value="${esc(
-              event?.location ?? '',
-            )}" />
+            <label for="ev-location">Location / address</label>
+            <input id="ev-location" name="location" maxlength="200" autocomplete="off"
+                   placeholder="e.g. 12 Oak St, Augusta, GA 30901" value="${esc(event?.location ?? '')}" />
+            <span class="help">A full street address opens in Maps from people's calendars.</span>
           </div>
         </fieldset>
 
@@ -865,40 +1262,46 @@ export function startApp(data, { onError } = {}) {
       contact: values.contact ?? '',
       item: values.item ?? '',
       note: values.note ?? '',
+      address: (values.address ?? '').trim(),
     });
     state.modal.form = null;
     await refresh();
     toast(form.dataset.kind === 'host' ? 'Signed up to host.' : 'Sign-up added.');
   }
 
-  async function submitLoginForm(form) {
-    const values = Object.fromEntries(new FormData(form).entries());
-    const viewer = await data.signIn(values.email, values.password);
-    state.viewer = viewer;
-    closeModal();
-    await refresh({ keepModal: false });
-    renderIntro();
-    toast(`Signed in as ${viewer.name || viewer.email}.`);
-  }
-
   async function submitRenameForm(form) {
     const name = String(new FormData(form).get('name') ?? '').trim();
     if (!name) throw new Error('Enter a name.');
     state.viewer = await data.setName(name);
-    closeModal();
-    render();
-    renderIntro();
+    renderAuth();
     toast('Name updated.');
   }
 
-  async function copyLink(url, what) {
+  async function submitInviteForm(form) {
+    const code = String(new FormData(form).get('code') ?? '').trim();
+    if (code.length < 6) throw new Error('Use at least 6 characters, so the code is hard to guess.');
+    const saved = await data.setInviteCode(code);
+    if (state.modal?.type === 'group') state.modal.inviteCode = saved;
+    renderModal();
+    toast('Invite code saved.');
+  }
+
+  async function signOutEverywhere() {
+    state.viewer = await data.signOut();
+    state.events = [];
+    closeModal();
+    showGate('signin', { notice: { tone: 'ok', text: 'Signed out.' } });
+  }
+
+  async function copyText(text, what) {
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(text);
       toast(`${what} copied.`);
     } catch {
-      window.prompt('Copy this link:', url);
+      window.prompt(`Copy this ${what.toLowerCase()}:`, text);
     }
   }
+  const copyLink = copyText;
 
   // --- wiring --------------------------------------------------------------
 
@@ -926,16 +1329,49 @@ export function startApp(data, { onError } = {}) {
         el.help?.setAttribute('aria-expanded', 'false');
       } else if (target.id === 'share-btn') {
         await copyLink(location.origin + location.pathname, 'Calendar link');
-      } else if (target.id === 'signin-btn') {
-        openModal({ type: 'login' });
-      } else if (target.id === 'who') {
-        openModal({ type: 'rename' });
-      } else if (target.id === 'signout-btn') {
-        state.viewer = await data.signOut();
-        closeModal();
-        await refresh({ keepModal: false });
-        renderIntro();
-        toast('Signed out.');
+      } else if (target.id === 'who' || target.hasAttribute('data-open-account')) {
+        if (state.modal) state.modal = null;
+        openModal({ type: 'account' });
+      } else if (target.id === 'signout-btn' || target.hasAttribute('data-account-signout') ||
+                 target.hasAttribute('data-gate-signout')) {
+        await signOutEverywhere();
+      } else if (target.dataset.gate) {
+        const email = el.gate?.querySelector('[name="email"]')?.value ?? '';
+        showGate(target.dataset.gate, { values: { email } });
+      } else if (target.hasAttribute('data-open-group')) {
+        state.modal = null;
+        await openGroup();
+      } else if (target.hasAttribute('data-copy-invite')) {
+        await copyText(state.modal?.inviteCode ?? '', 'Invite code');
+      } else if (target.dataset.memberRemove) {
+        if (!window.confirm(`Remove ${target.dataset.memberName || 'this person'} from the group? ` +
+            'They lose access to the calendar and their calendar feed stops.')) return;
+        await data.setMemberRemoved(target.dataset.memberRemove, true);
+        await openGroup();
+        toast('Member removed.');
+      } else if (target.dataset.memberRestore) {
+        await data.setMemberRemoved(target.dataset.memberRestore, false);
+        await openGroup();
+        toast('Member restored.');
+      } else if (target.hasAttribute('data-copy-feed')) {
+        const links = data.feedLinks?.();
+        if (links?.https) await copyText(links.https, 'Calendar link');
+      } else if (target.hasAttribute('data-reset-feed')) {
+        if (!window.confirm('Make a new calendar link? The old one stops working, so any calendar ' +
+            'subscribed with it — yours included — needs the new link.')) return;
+        state.viewer = await data.resetFeedToken();
+        renderModal();
+        toast('New calendar link made. Subscribe again with it.');
+      } else if (target.hasAttribute('data-download-feed')) {
+        const text = data.feedLinks?.()?.sample?.();
+        if (text) {
+          const url = URL.createObjectURL(new Blob([text], { type: 'text/calendar' }));
+          const link = Object.assign(document.createElement('a'), { href: url, download: 'calendar.ics' });
+          document.body.append(link);
+          link.click();
+          link.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
       } else if (target.id === 'new-event-btn') {
         openModal({ type: 'eventForm', eventId: null });
       } else if (target.dataset.gotoEvent) {
@@ -1007,7 +1443,8 @@ export function startApp(data, { onError } = {}) {
         target.closest('[data-slot-row]').remove();
       }
     } catch (err) {
-      toast(err.message, 'error');
+      if (err.signedOut) signedOut(err);
+      else toast(err.message, 'error');
     }
   });
 
@@ -1033,11 +1470,21 @@ export function startApp(data, { onError } = {}) {
       submit.textContent = 'Saving…';
     }
     try {
-      if (form.dataset.form === 'login') await submitLoginForm(form);
+      if (form.dataset.form.startsWith('gate-')) await submitGateForm(form);
       else if (form.dataset.form === 'rename') await submitRenameForm(form);
+      else if (form.dataset.form === 'invite') await submitInviteForm(form);
       else if (form.dataset.form === 'event') await submitEventForm(form);
       else await submitSignupForm(form);
+      // Forms that stay on screen after saving get their button back.
+      if (submit?.isConnected) {
+        submit.disabled = false;
+        submit.textContent = label;
+      }
     } catch (err) {
+      if (err.signedOut) {
+        signedOut(err);
+        return;
+      }
       showFormError(form, err.message);
       if (submit) {
         submit.disabled = false;
@@ -1059,7 +1506,7 @@ export function startApp(data, { onError } = {}) {
   // rotating a tablet or dragging a window wider.
   let resizeTimer;
   window.addEventListener('resize', () => {
-    if (state.viewChosen) return;
+    if (state.viewChosen || state.gate) return;
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       const wanted = window.innerWidth < 720 ? 'list' : 'month';
@@ -1072,7 +1519,9 @@ export function startApp(data, { onError } = {}) {
 
   // Someone else may have taken the last main dish while this tab sat open.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && !state.loading) refresh().catch(() => {});
+    if (document.visibilityState === 'visible' && !state.loading && !state.gate && state.viewer) {
+      refresh().catch(() => {});
+    }
   });
 
   // --- boot ----------------------------------------------------------------
@@ -1080,19 +1529,7 @@ export function startApp(data, { onError } = {}) {
   return (async () => {
     try {
       state.viewer = await data.init();
-      await reload();
-      state.loading = false;
-      const deepLink = location.hash.match(/^#event=(.+)$/);
-      if (deepLink) {
-        const event = eventById(decodeURIComponent(deepLink[1]));
-        if (event) {
-          state.cursor = startOfMonth(parseISODate(event.date));
-          state.modal = { type: 'event', eventId: event.id, form: null };
-        }
-      }
-      renderIntro();
-      render();
-      renderModal();
+      await enter();
     } catch (err) {
       state.loading = false;
       if (onError) onError(err);

@@ -77,43 +77,142 @@ function seed() {
   };
 }
 
-export function createDemoData() {
+// The demo's invite code. Shown on the demo page so the join flow can be
+// tried out.
+export const DEMO_INVITE_CODE = 'demo';
+
+export function createDemoData({ buildFeed = null } = {}) {
   const state = seed();
   const me = 'demo-visitor';
-  let viewer = { id: me, isOrganizer: false, name: '', anonymous: true, email: '' };
+  const member = () => ({
+    id: me,
+    email: 'you@example.com',
+    name: 'Demo member',
+    isOrganizer: false,
+    isMember: true,
+    removed: false,
+    feedToken: 'demo-feed-token',
+  });
+  // The demo opens signed in, so the calendar can be looked around at once.
+  // Signing out shows the sign-in screen, where any details will do.
+  let viewer = member();
+  let inviteCode = DEMO_INVITE_CODE;
+  const members = [
+    { id: 'demo-organizer', name: 'Demo organizer', email: 'organizer@example.com', joinedAt: '2026-01-05', removed: false, isOrganizer: true },
+    { id: 'demo-marisol', name: 'Marisol', email: 'marisol@example.com', joinedAt: '2026-02-11', removed: false, isOrganizer: false },
+  ];
 
   const find = (id) => state.events.find((e) => e.id === id);
+  const requireMember = () => {
+    if (!viewer?.isMember) throw new Error('Sign in and join the group first.');
+  };
+  const requireOrganizer = () => {
+    if (!viewer?.isOrganizer) throw new Error('Only organizers can do that.');
+  };
+  const checkCode = (code) => {
+    if (String(code ?? '').trim().toLowerCase() !== inviteCode.trim().toLowerCase()) {
+      throw new Error("That invite code isn't right. Check it with an organizer and try again.");
+    }
+  };
 
   return {
     async init() {
       return viewer;
     },
     viewer: () => viewer,
+    authRedirect: () => ({ recovery: false, error: null }),
 
     async signIn(email, password) {
-      // The demo has no accounts; any details unlock organizer mode so the
-      // event editor can be tried out.
-      if (!email || !password) throw new Error('Enter anything to try organizer mode.');
-      viewer = { ...viewer, isOrganizer: true, name: 'Demo organizer', email, anonymous: false };
+      // The demo has no real accounts; any details sign in as an organizer so
+      // the event editor and member list can be tried out.
+      if (!email || !password) throw new Error('Enter any email and password to try organizer mode.');
+      viewer = { ...member(), id: me, email, name: 'Demo organizer', isOrganizer: true };
+      return viewer;
+    },
+
+    async signUp({ email, password, displayName, inviteCode: code }) {
+      if (!email || !password) throw new Error('Enter an email and a password.');
+      viewer = { ...member(), email, name: displayName || email.split('@')[0], isMember: false };
+      try {
+        checkCode(code);
+      } catch (err) {
+        return { viewer, confirmEmail: false, joinError: err.message };
+      }
+      viewer = { ...viewer, isMember: true };
+      return { viewer, confirmEmail: false, joinError: null };
+    },
+
+    async joinGroup(code, displayName) {
+      checkCode(code);
+      viewer = { ...viewer, isMember: true, name: displayName || viewer.name };
+      return viewer;
+    },
+
+    async requestPasswordReset(email) {
+      if (!email) throw new Error('Enter your email.');
+    },
+
+    async updatePassword() {
       return viewer;
     },
 
     async signOut() {
-      viewer = { id: me, isOrganizer: false, name: '', anonymous: true, email: '' };
+      viewer = null;
       return viewer;
     },
 
     async setName(name) {
-      if (!viewer.isOrganizer) throw new Error('Only organizers have a display name.');
+      requireMember();
       viewer = { ...viewer, name };
       return viewer;
     },
 
+    /** A downloadable sample of what a member's subscription would contain. */
+    feedLinks() {
+      if (!viewer?.isMember || !buildFeed) return null;
+      return { sample: () => buildFeed(structuredClone(state.events), me) };
+    },
+
+    async resetFeedToken() {
+      requireMember();
+      viewer = { ...viewer, feedToken: `demo-feed-${Date.now()}` };
+      return viewer;
+    },
+
+    async getInviteCode() {
+      requireOrganizer();
+      return inviteCode;
+    },
+
+    async setInviteCode(code) {
+      requireOrganizer();
+      if (String(code ?? '').trim().length < 6 && code !== DEMO_INVITE_CODE) {
+        throw new Error('Use at least 6 characters.');
+      }
+      inviteCode = String(code).trim();
+      return inviteCode;
+    },
+
+    async listMembers() {
+      requireOrganizer();
+      return structuredClone(members);
+    },
+
+    async setMemberRemoved(id, removed) {
+      requireOrganizer();
+      const target = members.find((m) => m.id === id);
+      if (!target) throw new Error('That person is not a member.');
+      if (target.isOrganizer) throw new Error('Organizers cannot be removed here.');
+      target.removed = removed;
+    },
+
     async loadEvents() {
+      requireMember();
       return structuredClone(state.events);
     },
 
     async saveEvent(event, slots) {
+      requireOrganizer();
       const existing = event.id ? find(event.id) : null;
       const target = existing ?? { id: uid(), signups: [] };
       Object.assign(target, {
@@ -143,10 +242,12 @@ export function createDemoData() {
     },
 
     async deleteEvent(id) {
+      requireOrganizer();
       state.events = state.events.filter((e) => e.id !== id);
     },
 
     async addSignup(signup) {
+      requireMember();
       const event = find(signup.eventId);
       if (!event) throw new Error('That event no longer exists.');
 
@@ -169,6 +270,7 @@ export function createDemoData() {
         contact: signup.contact ?? '',
         item: signup.item ?? '',
         note: signup.note ?? '',
+        address: signup.address ?? '',
         createdBy: me,
       });
     },

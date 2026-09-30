@@ -63,13 +63,96 @@ insert into auth.users (id, email) values
   ('22222222-2222-2222-2222-222222222222', 'anna@example.com'),
   ('33333333-3333-3333-3333-333333333333', 'bob@example.com');
 
+insert into auth.users (id, email, is_anonymous) values
+  ('55555555-5555-5555-5555-555555555555', null, true),
+  ('66666666-6666-6666-6666-666666666666', 'stranger@example.com', false);
+
 insert into public.organizers (user_id, name)
 values ('11111111-1111-1111-1111-111111111111', 'Brian');
+
+update public.group_settings set invite_code = 'Maple River 42';
 
 \set organizer  '''11111111-1111-1111-1111-111111111111'''
 \set anna       '''22222222-2222-2222-2222-222222222222'''
 \set bob        '''33333333-3333-3333-3333-333333333333'''
 \set second     '''44444444-4444-4444-4444-444444444444'''
+\set ghost      '''55555555-5555-5555-5555-555555555555'''
+\set stranger   '''66666666-6666-6666-6666-666666666666'''
+
+-- ---------------------------------------------------------------------------
+-- Joining with the invite code
+-- ---------------------------------------------------------------------------
+
+select tests_assert(
+  (select count(*) from public.group_settings where char_length(invite_code) >= 6) = 1,
+  'the schema starts the group with an invite code');
+
+select tests_become(null);
+select tests_expect_error(
+  $$select public.join_group('Maple River 42', 'Nobody')$$,
+  'permission denied',
+  'a signed-out visitor cannot even try a code');
+
+select tests_become(:anna::uuid);
+select tests_assert(public.my_membership() is null, 'an account that has not joined is not a member');
+select tests_assert(not public.is_member(), 'is_member() is false before joining');
+
+select tests_assert(
+  public.join_group('Wrong code', 'Anna') = 'wrong_code',
+  'a wrong invite code is refused');
+select tests_expect_error(
+  $$select count(*) from public.members$$,
+  'permission denied',
+  'nobody can read the member table directly');
+select tests_assert(not public.is_member(), 'a wrong code does not make you a member');
+
+select tests_assert(
+  public.join_group('  maple river 42 ', 'Anna') = 'joined',
+  'the right code joins, ignoring case and surrounding spaces');
+select tests_assert(public.is_member(), 'is_member() is true after joining');
+select tests_assert(
+  public.my_membership()->>'display_name' = 'Anna',
+  'the member keeps the name they gave');
+select tests_assert(
+  public.join_group('whatever', 'Anna again') = 'joined',
+  'joining twice is harmless');
+
+select tests_become(:bob::uuid);
+select tests_assert(public.join_group('Maple River 42', '') = 'joined', 'bob joins');
+select tests_assert(
+  public.my_membership()->>'display_name' = 'bob',
+  'a member with no name given is named after their email');
+
+-- Five wrong guesses and the account has to wait.
+select tests_become(:stranger::uuid);
+select public.join_group('guess ' || n, 'Stranger') from generate_series(1, 5) as n;
+select tests_expect_error(
+  $$select public.join_group('Maple River 42', 'Stranger')$$,
+  'Too many wrong codes',
+  'guessing the code is throttled, even when the next guess is right');
+
+select tests_become(:ghost::uuid);
+select tests_expect_error(
+  $$select public.join_group('Maple River 42', 'Ghost')$$,
+  'Create an account',
+  'an anonymous session cannot join');
+
+-- Nobody but an organizer can read the code.
+select tests_become(:anna::uuid);
+select tests_assert(
+  (select count(*) from public.group_settings) = 0,
+  'a member cannot read the invite code');
+update public.group_settings set invite_code = 'hijacked!';
+select tests_become(:organizer::uuid);
+select tests_assert(
+  (select invite_code from public.group_settings) = 'Maple River 42',
+  'a member cannot change the invite code');
+
+select tests_become(null);
+select tests_expect_error(
+  $$select invite_code from public.group_settings$$,
+  'permission denied',
+  'a signed-out visitor cannot read the invite code');
 
 -- ---------------------------------------------------------------------------
 -- Only organizers may create or change events
@@ -93,8 +176,9 @@ select tests_expect_error(
   'a visitor with no session cannot insert an event');
 
 -- The organizer list itself is not public.
-select tests_assert(
-  (select count(*) from public.organizers) = 0,
+select tests_expect_error(
+  $$select count(*) from public.organizers$$,
+  'permission denied',
   'a visitor cannot read the organizer list');
 
 select tests_become(:anna::uuid);
@@ -121,10 +205,27 @@ select tests_assert(
   (select position from public.food_slots where event_id = :'event_id'::uuid and label = 'Dessert') = 2,
   'food slots keep the order they were given in');
 
--- Everyone can read the calendar, signed in or not.
+-- Only members can read the calendar.
+select tests_become(:anna::uuid);
+select tests_assert((select count(*) from public.events) = 1, 'a member can read events');
+select tests_assert((select count(*) from public.food_slots) = 3, 'a member can read food slots');
+
 select tests_become(null);
-select tests_assert((select count(*) from public.events) = 1, 'a visitor can read events');
-select tests_assert((select count(*) from public.food_slots) = 3, 'a visitor can read food slots');
+select tests_expect_error(
+  $$select count(*) from public.events$$,
+  'permission denied',
+  'a signed-out visitor cannot read events');
+
+select tests_become(:stranger::uuid);
+select tests_assert((select count(*) from public.events) = 0, 'an account that has not joined sees no events');
+select tests_assert((select count(*) from public.food_slots) = 0, 'an account that has not joined sees no food slots');
+select tests_expect_error(
+  format($$insert into public.signups (event_id, kind, name) values (%L, 'host', 'Stranger')$$, :'event_id'),
+  'row-level security',
+  'an account that has not joined cannot sign up');
+
+select tests_become(:ghost::uuid);
+select tests_assert((select count(*) from public.events) = 0, 'an anonymous session sees no events');
 
 -- ---------------------------------------------------------------------------
 -- Host sign-ups
@@ -321,6 +422,115 @@ delete from public.organizers where user_id = :second::uuid;
 delete from auth.users where id = :second::uuid;
 
 -- ---------------------------------------------------------------------------
+-- Names, the feed, and removing a member
+-- ---------------------------------------------------------------------------
+
+select tests_become(:anna::uuid);
+select tests_assert(public.set_display_name(' Anna Smith ') = 'Anna Smith', 'a member can rename themselves');
+select tests_assert(public.my_membership()->>'display_name' = 'Anna Smith', 'the new name sticks');
+
+-- A host can say where it is, separately from their note.
+select tests_become(:organizer::uuid);
+select public.save_event(
+  '{"title":"Hosted dinner","event_date":"2026-10-07","start_time":"18:00","needs_host":true,"host_limit":1}'::jsonb,
+  '[{"label":"Dessert","needed":1}]'::jsonb
+) as hosted_id \gset
+select updated_at as before_signup from public.events where id = :'hosted_id'::uuid \gset
+
+select tests_become(:anna::uuid);
+insert into public.signups (event_id, kind, name, note, address, contact)
+values (:'hosted_id'::uuid, 'host', 'Anna Smith', 'Side door', '12 Oak St, Augusta, GA', '555-0100');
+select tests_assert(
+  (select address from public.signups where event_id = :'hosted_id'::uuid and kind = 'host') = '12 Oak St, Augusta, GA',
+  'a host sign-up keeps its address');
+
+reset role;
+select tests_assert(
+  (select updated_at from public.events where id = :'hosted_id'::uuid) > :'before_signup'::timestamptz
+  or (select updated_at from public.events where id = :'hosted_id'::uuid) = now(),
+  'a sign-up marks its event as changed');
+
+select tests_become(:anna::uuid);
+select (public.my_membership()->>'feed_token') as anna_token \gset
+
+select tests_become(null);
+select public.feed_data(:'anna_token'::uuid) as feed \gset
+select tests_assert(:'feed'::jsonb->'member'->>'display_name' = 'Anna Smith', 'the feed knows whose it is');
+select tests_assert(
+  exists (select 1 from jsonb_array_elements(:'feed'::jsonb->'events') e
+           where e->>'title' = 'Hosted dinner'
+             and e->'signups'->0->>'address' = '12 Oak St, Augusta, GA'
+             and (e->'signups'->0->>'mine')::boolean),
+  'the feed carries the host address and marks your own sign-ups');
+select tests_assert(position('555-0100' in :'feed') = 0, 'the feed leaves contact details out');
+select tests_assert(position('created_by' in :'feed') = 0, 'the feed does not reveal who created what');
+select tests_assert(public.feed_data(gen_random_uuid()) is null, 'a made-up feed token gets nothing');
+
+select tests_become(:organizer::uuid);
+select public.save_event(
+  '{"title":"Long ago","event_date":"2020-01-01"}'::jsonb, '[]'::jsonb
+) as old_id \gset
+select tests_become(null);
+select tests_assert(
+  position('Long ago' in public.feed_data(:'anna_token'::uuid)::text) = 0,
+  'the feed skips events more than three months old');
+select tests_become(:organizer::uuid);
+delete from public.events where id = :'old_id'::uuid;
+
+select tests_become(:anna::uuid);
+select public.reset_feed_token() as anna_new_token \gset
+select tests_become(null);
+select tests_assert(public.feed_data(:'anna_token'::uuid) is null, 'resetting the feed link turns the old one off');
+select tests_assert(public.feed_data(:'anna_new_token'::uuid) is not null, 'the new feed link works');
+
+-- The member list and removing members are for organizers.
+select tests_become(:anna::uuid);
+select tests_expect_error($$select * from public.list_members()$$, 'Only organizers', 'a member cannot list members');
+select tests_expect_error(
+  format($$select public.set_member_removed(%L, true)$$, :bob),
+  'Only organizers',
+  'a member cannot remove another member');
+
+select tests_become(:organizer::uuid);
+select tests_assert(
+  (select count(*) from public.list_members() where email = 'anna@example.com' and display_name = 'Anna Smith') = 1,
+  'an organizer sees members with their email');
+select tests_assert(
+  (select is_organizer from public.list_members() where email = 'brian@example.com'),
+  'an organizer is listed as a member too');
+select tests_expect_error(
+  format($$select public.set_member_removed(%L, true)$$, :organizer),
+  'Organizers cannot be removed',
+  'an organizer cannot be removed from the page');
+
+select public.set_member_removed(:anna::uuid, true);
+
+select tests_become(:anna::uuid);
+select tests_assert(not public.is_member(), 'a removed member is no longer a member');
+select tests_assert((select count(*) from public.events) = 0, 'a removed member sees no events');
+select tests_assert((public.my_membership()->>'removed')::boolean, 'a removed member is told so');
+select tests_expect_error(
+  $$select public.join_group('Maple River 42', 'Anna')$$,
+  'removed from the group',
+  'a removed member cannot rejoin with the code');
+delete from public.signups where event_id = :'hosted_id'::uuid;
+select tests_become(:organizer::uuid);
+select tests_assert(
+  (select count(*) from public.signups where event_id = :'hosted_id'::uuid) = 1,
+  'a removed member cannot delete their old sign-ups');
+
+select tests_become(null);
+select tests_assert(public.feed_data(:'anna_new_token'::uuid) is null, 'a removed member''s feed stops');
+
+select tests_become(:organizer::uuid);
+select public.set_member_removed(:anna::uuid, false);
+select tests_become(:anna::uuid);
+select tests_assert(public.is_member(), 'an organizer can restore a removed member');
+
+select tests_become(:organizer::uuid);
+delete from public.events where id = :'hosted_id'::uuid;
+
+-- ---------------------------------------------------------------------------
 -- Table privileges
 -- ---------------------------------------------------------------------------
 --
@@ -330,8 +540,24 @@ delete from auth.users where id = :second::uuid;
 -- schema.sql revokes that, and these check it stayed revoked.
 
 select tests_assert(
-  has_table_privilege('anon', 'public.events', 'select'),
-  'a signed-out visitor can read events');
+  not has_table_privilege('anon', 'public.events', 'select'),
+  'a signed-out visitor has no SELECT on events');
+
+select tests_assert(
+  not has_table_privilege('anon', 'public.signups', 'select'),
+  'a signed-out visitor has no SELECT on sign-ups');
+
+select tests_assert(
+  not has_table_privilege('authenticated', 'public.members', 'select'),
+  'nobody reads the member table directly');
+
+select tests_assert(
+  not has_table_privilege('authenticated', 'public.members', 'insert'),
+  'nobody can add themselves as a member without the code');
+
+select tests_assert(
+  not has_function_privilege('anon', 'public.join_group(text,text)', 'execute'),
+  'a signed-out visitor cannot call join_group()');
 
 select tests_assert(
   not has_table_privilege('anon', 'public.events', 'insert'),

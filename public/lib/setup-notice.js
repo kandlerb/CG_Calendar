@@ -17,7 +17,7 @@ function hideChrome(buttonIds) {
 }
 
 export function setupNotice() {
-  hideChrome(['share-btn', 'new-event-btn', 'signin-btn', 'help-btn']);
+  hideChrome(['share-btn', 'new-event-btn', 'help-btn']);
 
   document.getElementById('calendar').hidden = false;
   document.getElementById('calendar').outerHTML = `
@@ -30,9 +30,11 @@ export function setupNotice() {
       <ol>
         <li>Create a project at <a href="https://supabase.com" rel="noreferrer noopener">supabase.com</a>.</li>
         <li>Open <strong>SQL editor</strong>, paste in <code>supabase/schema.sql</code> from this repository, and run it.</li>
-        <li>Under <strong>Authentication → Sign In / Providers</strong>, turn on <strong>Anonymous sign-ins</strong>.</li>
+        <li>Under <strong>Authentication</strong>, set the <strong>Site URL</strong> to this page's address
+          and connect an email service, so password-reset emails reach people.</li>
         <li>Add an organizer: <strong>Authentication → Users → Add user</strong>, then run the
           <code>insert into public.organizers …</code> snippet from the README.</li>
+        <li>Deploy the <code>calendar-feed</code> Edge Function, for calendar subscriptions.</li>
         <li>Copy the project URL and anon key from <strong>Project Settings → API</strong> into
           <code>public/config.js</code>, then commit and push.</li>
       </ol>
@@ -51,7 +53,7 @@ export function setupNotice() {
 export function fatalNotice(error) {
   const target = document.getElementById('calendar');
   if (!target) return;
-  hideChrome(['new-event-btn', 'signin-btn', 'signout-btn', 'help-btn']);
+  hideChrome(['new-event-btn', 'signout-btn', 'help-btn']);
   target.hidden = false;
   const detail = error?.message ?? String(error ?? '');
   target.outerHTML = `

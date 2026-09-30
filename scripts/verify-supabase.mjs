@@ -4,10 +4,11 @@
 //   node scripts/verify-supabase.mjs <project-url> <anon-key>
 //   node scripts/verify-supabase.mjs <project-url> <anon-key> <organizer-email> <password>
 //
-// With just the URL and anon key it checks what a visitor sees, and that the
-// database refuses what it should. Add an organizer's login and it also
-// creates a throwaway event, exercises the host and sign-up rules against
-// it, and deletes it again.
+// With just the URL and anon key it checks that a signed-out visitor sees
+// nothing, that the auth settings match the calendar, and that the feed
+// function is deployed. Add an organizer's login and it also creates a
+// throwaway event, exercises the host and sign-up rules against it, reads it
+// back through the organizer's own calendar feed, and deletes it again.
 //
 // Uses plain fetch — no dependencies, nothing installed.
 
@@ -89,48 +90,81 @@ if (health.status === 401 || health.status === 403) {
 ok('the project is reachable and the anon key is accepted');
 
 const anonymousEnabled = health.data?.external?.anonymous_users === true;
+const autoconfirm = health.data?.mailer_autoconfirm === true;
 
-// --- schema present -------------------------------------------------------
+// --- auth settings --------------------------------------------------------
+
+check(
+  !anonymousEnabled,
+  'anonymous sign-ins are off',
+  anonymousEnabled
+    ? 'turn them off under Authentication → Sign In / Providers → Anonymous sign-ins. ' +
+      'They can no longer see anything, so they only add clutter to the user list.'
+    : '',
+);
+check(
+  health.data?.disable_signup !== true,
+  'new accounts can be created',
+  health.data?.disable_signup ? 'turn on "Allow new users to sign up" under Authentication → Sign In / Providers' : '',
+);
+check(
+  autoconfirm,
+  'new accounts do not wait for a confirmation email',
+  autoconfirm
+    ? ''
+    : 'turn off "Confirm email" under Authentication → Sign In / Providers → Email. The invite code ' +
+      'already decides who gets in; with it on, people must confirm before they can enter the code.',
+);
+
+// --- a signed-out visitor sees nothing -------------------------------------
 
 for (const table of ['events', 'food_slots', 'signups']) {
   const res = await api(`/rest/v1/${table}?select=id&limit=1`);
+  const refused = !res.ok && /permission denied/i.test(errorText(res.data));
+  const missing = /does not exist|could not find/i.test(errorText(res.data));
   check(
-    res.ok,
-    `the ${table} table exists and is readable`,
-    res.ok ? '' : `${res.status}: ${errorText(res.data)} — has supabase/schema.sql been run?`,
+    refused,
+    `a signed-out visitor cannot read ${table}`,
+    refused
+      ? ''
+      : missing
+        ? `${res.status}: ${errorText(res.data)} — has supabase/schema.sql been run?`
+        : res.ok
+          ? 'IT SUCCEEDED — re-run supabase/schema.sql so only members can read the calendar.'
+          : `${res.status}: ${errorText(res.data)}`,
   );
 }
 
 const organizers = await api('/rest/v1/organizers?select=user_id');
 check(
-  organizers.ok && Array.isArray(organizers.data) && organizers.data.length === 0,
+  !organizers.ok || (Array.isArray(organizers.data) && organizers.data.length === 0),
   'the organizer list is not readable by visitors',
-  organizers.ok ? '' : `${organizers.status}: ${errorText(organizers.data)}`,
+  organizers.ok ? '' : `refused with ${organizers.status}`,
 );
 
-// --- anonymous sign-in ----------------------------------------------------
+const settings = await api('/rest/v1/group_settings?select=invite_code');
+check(
+  !settings.ok || (Array.isArray(settings.data) && settings.data.length === 0),
+  'the invite code is not readable by visitors',
+  settings.ok && settings.data?.length ? 'IT IS READABLE — re-run supabase/schema.sql.' : '',
+);
 
-const anonSession = anonymousEnabled
-  ? await api('/auth/v1/signup', { method: 'POST', body: {} })
-  : null;
-const anonToken = anonSession?.data?.access_token;
-if (!anonymousEnabled) {
-  fail(
-    'anonymous sign-ins are enabled',
-    'turn them on under Authentication → Sign In / Providers → Anonymous sign-ins. ' +
-      'Until then nobody can sign up to host or bring food.',
-  );
-} else if (!anonToken) {
-  fail('anonymous sign-ins are enabled', `${anonSession.status}: ${errorText(anonSession.data)}`);
-} else {
-  ok('anonymous sign-ins are enabled', 'visitors can sign up for things');
-}
-
-// --- the rules hold for a visitor ----------------------------------------
+const sneakyJoin = await api('/rest/v1/rpc/join_group', {
+  method: 'POST',
+  body: { p_code: 'guess', p_display_name: 'Verification probe' },
+});
+check(
+  !sneakyJoin.ok && sneakyJoin.status !== 404,
+  'a signed-out visitor cannot try invite codes',
+  sneakyJoin.status === 404
+    ? 'join_group() is missing — re-run supabase/schema.sql'
+    : sneakyJoin.ok
+      ? 'IT SUCCEEDED — re-run supabase/schema.sql.'
+      : `refused with ${sneakyJoin.status}`,
+);
 
 const sneakyInsert = await api('/rest/v1/events', {
   method: 'POST',
-  token: anonToken,
   body: { title: 'Verification probe', event_date: '2099-01-01' },
 });
 check(
@@ -141,13 +175,34 @@ check(
 
 const sneakyRpc = await api('/rest/v1/rpc/save_event', {
   method: 'POST',
-  token: anonToken,
   body: { p_event: { title: 'Verification probe', event_date: '2099-01-01' }, p_slots: [] },
 });
 check(
   !sneakyRpc.ok,
   'a visitor cannot create an event through save_event()',
   sneakyRpc.ok ? 'IT SUCCEEDED — check the is_organizer() guard in save_event.' : `refused with ${sneakyRpc.status}`,
+);
+
+// --- the calendar feed ----------------------------------------------------
+
+async function fetchFeed(token) {
+  try {
+    const res = await fetch(`${base}/functions/v1/calendar-feed?token=${token}`);
+    return { status: res.status, type: res.headers.get('content-type') ?? '', text: await res.text() };
+  } catch (err) {
+    return { status: 0, type: '', text: err.message };
+  }
+}
+
+const badFeed = await fetchFeed('00000000-0000-0000-0000-000000000000');
+check(
+  badFeed.status === 404 && /not valid/i.test(badFeed.text),
+  'the calendar-feed function is deployed and turns away a made-up link',
+  badFeed.status === 404 && /not valid/i.test(badFeed.text)
+    ? ''
+    : badFeed.status === 401
+      ? 'it is asking for a login — redeploy it with JWT verification off (--no-verify-jwt)'
+      : `${badFeed.status}: ${badFeed.text.slice(0, 120)} — deploy supabase/functions/calendar-feed`,
 );
 
 // --- organizer round trip -------------------------------------------------
@@ -165,9 +220,17 @@ if (organizerEmail && organizerPassword) {
   } else {
     ok('the organizer can sign in');
 
-    const mine = await api('/rest/v1/organizers?select=name', { token });
-    const isOrganizer = Array.isArray(mine.data) && mine.data.length === 1;
-    check(isOrganizer, 'that account is listed in public.organizers', isOrganizer ? mine.data[0].name : 'run the insert into public.organizers snippet from the README');
+    const mine = await api('/rest/v1/rpc/my_membership', { method: 'POST', token, body: {} });
+    const isOrganizer = mine.data?.is_organizer === true;
+    check(isOrganizer, 'that account is listed in public.organizers', isOrganizer ? mine.data.display_name : 'run the insert into public.organizers snippet from the README');
+    const feedToken = mine.data?.feed_token;
+
+    const code = await api('/rest/v1/group_settings?select=invite_code', { token });
+    check(
+      code.ok && code.data?.length === 1,
+      'the organizer can read the invite code',
+      code.ok ? (code.data?.length ? '' : 'no invite code row — re-run supabase/schema.sql') : errorText(code.data),
+    );
 
     if (isOrganizer) {
       const created = await api('/rest/v1/rpc/save_event', {
@@ -177,6 +240,7 @@ if (organizerEmail && organizerPassword) {
           p_event: {
             title: 'Setup check — safe to delete',
             event_date: '2099-01-01',
+            location: '1 Setup Check Way, Augusta, GA',
             start_time: '18:30',
             needs_host: true,
             host_limit: 1,
@@ -199,14 +263,14 @@ if (organizerEmail && organizerPassword) {
 
         const host1 = await api('/rest/v1/signups', {
           method: 'POST',
-          token: anonToken,
+          token,
           body: { event_id: eventId, kind: 'host', name: 'Setup check' },
         });
-        check(host1.ok, 'a visitor can sign up to host', host1.ok ? '' : errorText(host1.data));
+        check(host1.ok, 'a member can sign up to host', host1.ok ? '' : errorText(host1.data));
 
         const host2 = await api('/rest/v1/signups', {
           method: 'POST',
-          token: anonToken,
+          token,
           body: { event_id: eventId, kind: 'host', name: 'Setup check two' },
         });
         check(
@@ -218,15 +282,15 @@ if (organizerEmail && organizerPassword) {
         if (main) {
           const claim = await api('/rest/v1/signups', {
             method: 'POST',
-            token: anonToken,
+            token,
             body: { event_id: eventId, slot_id: main.id, kind: 'food', name: 'Setup check', item: 'Lasagna' },
           });
-          check(claim.ok, 'a visitor can sign up for a food slot', claim.ok ? '' : errorText(claim.data));
+          check(claim.ok, 'a member can sign up for a food slot', claim.ok ? '' : errorText(claim.data));
 
           // The number on a slot is a minimum, so this second person belongs.
           const extra = await api('/rest/v1/signups', {
             method: 'POST',
-            token: anonToken,
+            token,
             body: { event_id: eventId, slot_id: main.id, kind: 'food', name: 'Setup check two', item: 'Chili' },
           });
           check(
@@ -247,7 +311,7 @@ if (organizerEmail && organizerPassword) {
 
           const wrongEvent = await api('/rest/v1/signups', {
             method: 'POST',
-            token: anonToken,
+            token,
             body: {
               event_id: eventId,
               slot_id: '00000000-0000-0000-0000-000000000000',
@@ -268,7 +332,7 @@ if (organizerEmail && organizerPassword) {
           for (const dish of ['Green beans', 'Potatoes', 'Corn']) {
             const res = await api('/rest/v1/signups', {
               method: 'POST',
-              token: anonToken,
+              token,
               body: { event_id: eventId, slot_id: sides.id, kind: 'food', name: 'Setup check', item: dish },
             });
             results.push(res.ok);
@@ -277,6 +341,23 @@ if (organizerEmail && organizerPassword) {
             results.every(Boolean),
             'a slot with no minimum takes everyone',
             `${results.filter(Boolean).length} of 3 accepted`,
+          );
+        }
+
+        if (feedToken) {
+          const feed = await fetchFeed(feedToken);
+          check(
+            feed.status === 200 && feed.type.startsWith('text/calendar') && feed.text.includes('Setup check'),
+            "the organizer's calendar feed includes the new event",
+            feed.status === 200 ? '' : `${feed.status}: ${feed.text.slice(0, 120)}`,
+          );
+          check(
+            feed.text.includes('LOCATION:1 Setup Check Way\\, Augusta\\, GA'),
+            'the feed puts the location in the address field',
+          );
+          check(
+            feed.text.includes('#event=') && feed.text.includes('DESCRIPTION:'),
+            'the feed links each event back to the calendar',
           );
         }
 
