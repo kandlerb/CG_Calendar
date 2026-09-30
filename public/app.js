@@ -651,7 +651,7 @@ export function startApp(data, { onError } = {}) {
       <div class="field">
         <label for="su-note">Note <span class="help">(optional)</span></label>
         <input id="su-note" name="note" maxlength="${LIMITS.note}" value="${value('note')}" placeholder="${
-          host ? 'Pets, kids welcome, anything to know…' : 'Gluten free, needs oven space…'
+          host ? 'Things to know…' : 'Gluten free, needs oven space…'
         }" />
       </div>
       <p class="hint">${
@@ -858,7 +858,7 @@ export function startApp(data, { onError } = {}) {
           </div>
           <div class="field">
             <label for="ev-description">Details <span class="help">(optional)</span></label>
-            <textarea id="ev-description" name="description" maxlength="${LIMITS.description}" placeholder="Topic, whether kids are welcome, other details">${esc(
+            <textarea id="ev-description" name="description" maxlength="${LIMITS.description}" placeholder="Topic, other details">${esc(
               event?.description ?? '',
             )}</textarea>
           </div>

@@ -29,7 +29,7 @@ function seed() {
       {
         id: dinner,
         title: 'Community Group — Week 1',
-        description: 'Study in Philippians, chapter 2. Kids welcome.',
+        description: 'Study in Philippians, chapter 2.',
         location: '',
         date: relativeDate(3),
         startTime: '18:30',
