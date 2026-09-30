@@ -443,6 +443,7 @@ test('signing out shows only the sign-in screen', async ({ page }) => {
   await expect(page.locator('#agenda')).toBeHidden();
   await expect(page.locator('.toolbar')).toBeHidden();
   await expect(page.locator('#next-up')).toBeHidden();
+  await expect(page.locator('#subscribe-btn')).toBeHidden();
 });
 
 test('a new account needs the invite code before it sees the calendar', async ({ page }) => {
@@ -474,10 +475,10 @@ test('an event link opened while signed out opens after signing in', async ({ pa
   await expect(dialog(page)).toContainText('Community Group — Week 1');
 });
 
-test('the account panel offers the calendar subscription', async ({ page }) => {
+test('Subscribe in the header opens the calendar subscription', async ({ page }) => {
   await page.goto('/demo.html');
-  await page.locator('#who').click();
-  await expect(dialog(page).getByRole('heading', { name: 'Add the calendar to your phone' })).toBeVisible();
+  await page.getByRole('button', { name: 'Subscribe' }).click();
+  await expect(dialog(page).getByRole('heading', { name: 'Subscribe to the calendar' })).toBeVisible();
   const download = page.waitForEvent('download');
   await dialog(page).getByRole('button', { name: 'Download a sample' }).click();
   expect((await download).suggestedFilename()).toBe('calendar.ics');

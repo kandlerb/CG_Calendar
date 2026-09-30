@@ -131,6 +131,7 @@ export function startApp(data, { onError } = {}) {
     signOut: document.getElementById('signout-btn'),
     newEvent: document.getElementById('new-event-btn'),
     help: document.getElementById('help-btn'),
+    subscribe: document.getElementById('subscribe-btn'),
     divider: document.querySelector('.topbar-divider'),
   };
 
@@ -203,8 +204,8 @@ export function startApp(data, { onError } = {}) {
           are unfilled.</li>
         <li><strong>Sign up.</strong> Take the host slot if the event still needs one, or pick a food
           slot and enter what you are bringing.</li>
-        <li><strong>Add it to your calendar.</strong> Open <strong>your name</strong> at the top and subscribe,
-          and every event shows up in your phone's calendar with who is bringing what.</li>
+        <li><strong>Add it to your calendar.</strong> Tap <strong>Subscribe</strong> at the top, and every
+          event shows up in your phone's calendar with who is bringing what.</li>
       </ol>
       <p class="hint">
         To change or remove a sign-up, reopen the event. Your sign-ups follow your account, so any device
@@ -249,6 +250,7 @@ export function startApp(data, { onError } = {}) {
     el.who.title = member ? 'Your account, calendar subscription and sign out' : '';
     el.signOut.hidden = !viewer;
     el.newEvent.hidden = !organizer;
+    if (el.subscribe) el.subscribe.hidden = !member;
     if (el.help) el.help.hidden = Boolean(state.gate);
     if (el.divider) el.divider.hidden = !member;
   }
@@ -819,6 +821,7 @@ export function startApp(data, { onError } = {}) {
     }
     let html = '';
     if (modal.type === 'account') html = accountModalHtml(modal);
+    else if (modal.type === 'subscribe') html = subscribeModalHtml();
     else if (modal.type === 'group') html = groupModalHtml(modal);
     else if (modal.type === 'eventForm')
       html = eventFormHtml(
@@ -863,8 +866,11 @@ export function startApp(data, { onError } = {}) {
     }
   }
 
-  function accountModalHtml(modal) {
-    const viewer = state.viewer ?? {};
+  /**
+   * Subscribing to the calendar from Apple Calendar, Google Calendar or
+   * Outlook. Opened from the Subscribe button in the header.
+   */
+  function subscribeModalHtml() {
     const links = data.feedLinks?.() ?? null;
     let feed = '<p class="hint">Your calendar link is not ready yet. Reload the page and try again.</p>';
     if (links?.webcal) {
@@ -898,6 +904,24 @@ export function startApp(data, { onError } = {}) {
     return `
       <div class="modal-head">
         <div>
+          <h2 id="modal-title">Subscribe to the calendar</h2>
+          <p class="when">Every event, in the calendar app on your phone or computer.</p>
+        </div>
+        <button type="button" class="close" data-close aria-label="Close">&times;</button>
+      </div>
+      <div class="subscribe-body">${feed}</div>
+      <div class="section footer-actions">
+        <div class="form-actions">
+          <button type="button" class="btn ghost push-right" data-close>Close</button>
+        </div>
+      </div>`;
+  }
+
+  function accountModalHtml(modal) {
+    const viewer = state.viewer ?? {};
+    return `
+      <div class="modal-head">
+        <div>
           <h2 id="modal-title">Your account</h2>
           <p class="when">${esc(viewer.email ?? '')}${viewer.isOrganizer ? ' · Organizer' : ''}</p>
         </div>
@@ -915,7 +939,8 @@ export function startApp(data, { onError } = {}) {
       </form>
       <div class="section">
         <h3>Add the calendar to your phone</h3>
-        ${feed}
+        <p class="hint">Every event in your phone's calendar, kept up to date.</p>
+        <button type="button" class="btn" data-open-subscribe>Subscribe</button>
       </div>
       ${
         viewer.isOrganizer
@@ -1623,6 +1648,9 @@ export function startApp(data, { onError } = {}) {
         el.help?.setAttribute('aria-expanded', 'false');
       } else if (target.id === 'share-btn') {
         await copyLink(location.origin + location.pathname, 'Calendar link');
+      } else if (target.id === 'subscribe-btn' || target.hasAttribute('data-open-subscribe')) {
+        if (state.modal) state.modal = null;
+        openModal({ type: 'subscribe' });
       } else if (target.id === 'who' || target.hasAttribute('data-open-account')) {
         if (state.modal) state.modal = null;
         openModal({ type: 'account' });

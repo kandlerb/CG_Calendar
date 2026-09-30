@@ -225,7 +225,7 @@ code too if that matters.
 
 ## The calendar subscription
 
-Each member finds it under **their name → Add the calendar to your phone**:
+Each member finds it under the **Subscribe** button at the top of the calendar:
 
 - **Apple Calendar / Outlook**: one tap (a `webcal://` link).
 - **Google Calendar**: copy the link, then **Other calendars → From URL** on a
