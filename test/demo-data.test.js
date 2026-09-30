@@ -162,4 +162,75 @@ describe('demo data source', () => {
     event.title = 'Mutated';
     assert.notEqual((await firstEvent()).title, 'Mutated');
   });
+
+  it('shows a contact only to the person who signed up and to organizers', async () => {
+    const event = await firstEvent();
+    await data.addSignup({ eventId: event.id, kind: 'food', name: 'Me', item: 'Pie', contact: '555-0100' });
+    const mine = (await firstEvent()).signups.find((s) => s.name === 'Me');
+    assert.equal(mine.contact, '555-0100');
+
+    // Marisol's sign-up was made in another browser, and she left an email.
+    const others = (await firstEvent()).signups.find((s) => s.name === 'Marisol');
+    assert.equal(others.contact, '');
+
+    await data.signIn('org@example.com', 'x');
+    const all = await firstEvent();
+    assert.equal(all.signups.find((s) => s.name === 'Marisol').contact, 'marisol@example.com');
+  });
+
+  it('refuses a host on an event whose host is already arranged, as the database does', async () => {
+    const cookout = (await data.loadEvents()).find((e) => !e.needsHost);
+    await assert.rejects(
+      data.addSignup({ eventId: cookout.id, kind: 'host', name: 'Me' }),
+      /does not need a host/,
+    );
+  });
+
+  it('refuses food outside the slots when the organizer has turned that off', async () => {
+    await data.signIn('org@example.com', 'x');
+    const id = await data.saveEvent(
+      { title: 'Slots only', date: '2030-01-01', needsHost: false, hostLimit: 1, allowOtherFood: false },
+      [{ label: 'Main', needed: 1 }],
+    );
+    await assert.rejects(
+      data.addSignup({ eventId: id, kind: 'food', name: 'Me', item: 'Chips' }),
+      /listed food slots/,
+    );
+  });
+
+  it('loads only events from the given date on', async () => {
+    const all = await data.loadEvents();
+    const later = all[1].date;
+    const some = await data.loadEvents({ since: later });
+    assert.deepEqual(some.map((e) => e.date), [later]);
+  });
+
+  it('lets you edit what your sign-up says, but not what it is for', async () => {
+    const event = await firstEvent();
+    const main = event.foodSlots.find((s) => s.label === 'Main dish');
+    await data.addSignup({ eventId: event.id, slotId: main.id, kind: 'food', name: 'Anna', item: 'Lasagna' });
+    const mine = (await firstEvent()).signups.find((s) => s.name === 'Anna');
+    await data.updateSignup(mine.id, { item: 'Chili', kind: 'host', slotId: null });
+    const after = (await firstEvent()).signups.find((s) => s.id === mine.id);
+    assert.deepEqual([after.item, after.kind, after.slotId], ['Chili', 'food', main.id]);
+  });
+
+  it('refuses to let a visitor edit someone else\'s sign-up', async () => {
+    const marisol = (await firstEvent()).signups.find((s) => s.name === 'Marisol');
+    await assert.rejects(() => data.updateSignup(marisol.id, { item: 'Nothing' }), /not allowed/);
+  });
+
+  it('lets an organizer cancel an event, which then takes no sign-ups', async () => {
+    const event = await firstEvent();
+    await assert.rejects(() => data.setCancelled(event.id, true), /not allowed/);
+    await data.signIn('org@example.com', 'x');
+    await data.setCancelled(event.id, true);
+    assert.equal((await firstEvent()).cancelled, true);
+    await assert.rejects(
+      () => data.addSignup({ eventId: event.id, kind: 'host', name: 'Anna' }),
+      /cancelled/,
+    );
+    await data.setCancelled(event.id, false);
+    await data.addSignup({ eventId: event.id, kind: 'host', name: 'Anna' });
+  });
 });

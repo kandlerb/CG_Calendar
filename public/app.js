@@ -19,9 +19,24 @@ import {
   foodStillNeeded,
   groupByDate,
   nextEvent,
+  past,
   shapeEvents,
   upcoming,
 } from './lib/model.js';
+import {
+  LIMITS,
+  MAX_REPEAT_WEEKS,
+  cleanSlots,
+  eventCopy,
+  eventFromForm,
+  loadWindowStart,
+  repeatCount,
+  signupFromForm,
+  slotCopies,
+  slotStatus,
+} from './lib/forms.js';
+import { contactLink } from './lib/contact.js';
+import { eventToIcs, icsFileName } from './lib/ics.js';
 
 const WEEKDAYS = [
   { short: 'Sun', full: 'Sunday' },
@@ -88,7 +103,14 @@ export function startApp(data, { onError } = {}) {
     view: storedView === 'month' || storedView === 'list' ? storedView : window.innerWidth < 720 ? 'list' : 'month',
     viewChosen: Boolean(storedView),
     cursor: startOfMonth(new Date()),
+    // Old events are only fetched once someone steps back far enough to see
+    // them; see loadEarlierIfNeeded().
+    since: loadWindowStart(new Date()),
+    loadedAt: 0,
     expandedDay: null,
+    showPast: false,
+    // Upcoming, narrowed to the events this browser signed up for.
+    onlyMine: false,
     modal: null,
   };
 
@@ -97,6 +119,7 @@ export function startApp(data, { onError } = {}) {
     gate: document.getElementById('gate'),
     intro: document.getElementById('intro'),
     viewNote: document.getElementById('view-note'),
+    nextUp: document.getElementById('next-up'),
     toolbar: document.querySelector('.toolbar'),
     calendar: document.getElementById('calendar'),
     agenda: document.getElementById('agenda'),
@@ -108,6 +131,7 @@ export function startApp(data, { onError } = {}) {
     signOut: document.getElementById('signout-btn'),
     newEvent: document.getElementById('new-event-btn'),
     help: document.getElementById('help-btn'),
+    divider: document.querySelector('.topbar-divider'),
   };
 
   let toastTimer;
@@ -124,11 +148,13 @@ export function startApp(data, { onError } = {}) {
   // --- data ----------------------------------------------------------------
 
   async function reload() {
-    const raw = await data.loadEvents();
+    const raw = await data.loadEvents({ since: state.since });
+    state.loadedAt = Date.now();
     state.viewer = data.viewer();
     state.events = shapeEvents(raw, {
       userId: state.viewer?.id ?? null,
       isOrganizer: Boolean(state.viewer?.isOrganizer),
+      todayKey: isoDate(new Date()),
     });
   }
 
@@ -138,6 +164,26 @@ export function startApp(data, { onError } = {}) {
     await reload();
     render();
     if (keepModal) renderModal();
+  }
+
+  /** Stepping back past what has been loaded fetches the older events. */
+  async function loadEarlierIfNeeded() {
+    const monthKey = isoDate(state.cursor);
+    if (!state.since || monthKey >= state.since) return;
+    state.since = monthKey;
+    await reload();
+    render();
+  }
+
+  /**
+   * Finds an event a link points at. A link to an old event may be outside
+   * what was loaded, so look at everything once before giving up.
+   */
+  async function findLinkedEvent(id) {
+    if (eventById(id) || !state.since) return eventById(id) ?? null;
+    state.since = null;
+    await reload();
+    return eventById(id) ?? null;
   }
 
   // --- the "how this works" panel ------------------------------------------
@@ -204,13 +250,14 @@ export function startApp(data, { onError } = {}) {
     el.signOut.hidden = !viewer;
     el.newEvent.hidden = !organizer;
     if (el.help) el.help.hidden = Boolean(state.gate);
+    if (el.divider) el.divider.hidden = !member;
   }
 
   function render() {
     renderAuth();
     if (el.gate) el.gate.hidden = !state.gate;
     if (state.gate) {
-      for (const node of [el.loading, el.toolbar, el.calendar, el.agenda, el.viewNote, el.intro]) {
+      for (const node of [el.loading, el.toolbar, el.calendar, el.agenda, el.viewNote, el.intro, el.nextUp]) {
         if (node) node.hidden = true;
       }
       renderGate();
@@ -222,6 +269,7 @@ export function startApp(data, { onError } = {}) {
       el.calendar.hidden = true;
       el.agenda.hidden = true;
       if (el.viewNote) el.viewNote.hidden = true;
+      if (el.nextUp) el.nextUp.hidden = true;
       return;
     }
 
@@ -238,7 +286,33 @@ export function startApp(data, { onError } = {}) {
     }
     if (monthView) renderMonth();
     else renderAgenda();
+    renderNextUp();
     renderViewNote();
+  }
+
+  /**
+   * One line above the month grid: the next gathering and what it still
+   * needs. Most visitors only care about that one. Upcoming already starts
+   * with it, so the line would only repeat the first card there.
+   */
+  function renderNextUp() {
+    if (!el.nextUp) return;
+    const next = state.view === 'month' ? nextEvent(state.events, isoDate(new Date())) : null;
+    el.nextUp.hidden = !next;
+    if (!next) return;
+    const summary = eventSummary(next);
+    const time = next.startTime ? ` · ${formatTime(next.startTime)}` : '';
+    el.nextUp.innerHTML = `
+      <div class="next-up-text">
+        <span class="next-up-label">Next up</span>
+        <strong>${esc(next.title)}</strong>
+        <span class="next-up-when">${esc(formatShortDate(next.date))}${esc(time)}</span>
+        <span class="next-up-status${summary.done ? ' done' : ''}">${esc(
+          summary.done ? 'All set' : summary.text.replace(/\.$/, ''),
+        )}</span>
+      </div>
+      <button type="button" class="btn primary small" data-event="${esc(next.id)}"
+              aria-label="Open ${esc(next.title)}">Open</button>`;
   }
 
   /**
@@ -291,27 +365,31 @@ export function startApp(data, { onError } = {}) {
   }
 
   function chipHtml(event) {
-    const wanted = event.needsHost && event.hostSpotsLeft > 0;
+    const wanted = !event.closed && event.needsHost && event.hostSpotsLeft > 0;
     const time = event.startTime ? formatTime(event.startTime) : 'TBD';
-    // A cell is only so wide, so the row is one line and the detail moves into
-    // the tooltip and the dot colour.
-    const tip = [`${event.title}, ${time}`, wanted ? 'Needs a host.' : '']
-      .filter(Boolean)
-      .join(' ');
+    // A cell is only so wide, so the row is one line; the dot colour carries
+    // the host status, and the key under the grid says what it means.
+    const status = [
+      event.cancelled ? 'Cancelled.' : event.past ? 'Past event.' : '',
+      wanted ? 'Needs a host.' : '',
+      event.mine.length ? 'You signed up.' : '',
+    ].filter(Boolean);
+    const tip = [`${event.title}, ${time}`, event.location, ...status].filter(Boolean).join('. ');
     return `<button type="button" class="chip${wanted ? ' needs-host' : ''}${
       event.mine.length ? ' mine' : ''
-    }" data-event="${esc(event.id)}" title="${esc(tip)}">
+    }${event.past ? ' past' : ''}${event.cancelled ? ' cancelled' : ''}" data-event="${esc(event.id)}" title="${esc(tip)}">
       <span class="dot" aria-hidden="true"></span>
       <span class="chip-time">${esc(time)}</span>
       <span class="chip-title">${esc(event.title)}</span>
+      ${status.length ? `<span class="sr-only">${esc(status.join(' '))}</span>` : ''}
     </button>`;
   }
 
   function renderMonth() {
     const byDate = groupByDate(state.events);
     const todayKey = isoDate(new Date());
-    let html = `<div class="weekdays" role="row">${WEEKDAYS.map(
-      (d) => `<div role="columnheader"><abbr title="${d.full}">${d.short}</abbr></div>`,
+    let html = `<div class="weekdays">${WEEKDAYS.map(
+      (d) => `<div><abbr title="${d.full}">${d.short}</abbr></div>`,
     ).join('')}</div>`;
 
     const canAdd = Boolean(state.viewer?.isOrganizer);
@@ -344,33 +422,77 @@ export function startApp(data, { onError } = {}) {
       }
       html += '</div>';
     }
+    // A touch screen has no tooltip, so the dot colours need a key.
+    html += `<div class="legend" aria-hidden="true">
+      <span><span class="swatch needs-host"><span class="dot"></span></span>Needs a host</span>
+      <span><span class="swatch"><span class="dot"></span></span>Host set</span>
+      <span><span class="swatch mine"></span>You signed up</span>
+    </div>`;
     el.calendar.innerHTML = html;
   }
 
+  // The title is the button; its ::after stretches over the whole card so
+  // the card still opens from anywhere, without a heading, paragraphs and
+  // badges all being read out as one button's name.
+  function agendaCardHtml(event) {
+    return `<article class="agenda-card${event.past ? ' past' : ''}${event.cancelled ? ' cancelled' : ''}">
+      <p class="when">${esc(formatLongDate(event.date))} · ${esc(formatTimeRange(event))}</p>
+      <h3><button type="button" class="agenda-open" data-event="${esc(event.id)}">${esc(event.title)}</button></h3>
+      ${event.location ? `<p class="where">${esc(event.location)}</p>` : ''}
+      ${badgeHtml(eventBadges(event))}
+      <span class="agenda-cue" aria-hidden="true">${
+        event.cancelled ? 'See details →' : event.past ? 'See who came →' : 'Open to sign up →'
+      }</span>
+    </article>`;
+  }
+
   function renderAgenda() {
-    const list = upcoming(state.events, isoDate(new Date()));
-    if (!list.length) {
-      el.agenda.innerHTML = `<p class="empty">
-        <strong>No upcoming events.</strong><br />
-        ${
-          state.viewer?.isOrganizer
-            ? 'Use “+ New event” to add one.'
-            : 'Only an organizer can add them.'
-        }
-      </p>`;
-      return;
-    }
-    el.agenda.innerHTML = list
-      .map(
-        (event) => `<button type="button" class="agenda-card" data-event="${esc(event.id)}">
-          <p class="when">${esc(formatLongDate(event.date))} · ${esc(formatTimeRange(event))}</p>
-          <h3>${esc(event.title)}</h3>
-          ${event.location ? `<p class="where">${esc(event.location)}</p>` : ''}
-          ${badgeHtml(eventBadges(event))}
-          <span class="agenda-cue">Open to sign up →</span>
-        </button>`,
-      )
-      .join('');
+    const todayKey = isoDate(new Date());
+    const mineOnly = (events) => (state.onlyMine ? events.filter((event) => event.mine.length) : events);
+    const allUpcoming = upcoming(state.events, todayKey);
+    const list = mineOnly(allUpcoming);
+    const earlier = mineOnly(past(state.events, todayKey));
+    // Offered once there is something to narrow to, and kept while it is on.
+    const filter =
+      state.onlyMine || allUpcoming.some((event) => event.mine.length)
+        ? `<div class="agenda-filter">
+             <button type="button" class="btn toggle small" data-only-mine aria-pressed="${state.onlyMine}">
+               Only my sign-ups
+             </button>
+           </div>`
+        : '';
+    const cards = list.length
+      ? list.map(agendaCardHtml).join('')
+      : state.onlyMine
+        ? '<p class="empty"><strong>You have no upcoming sign-ups.</strong></p>'
+        : `<p class="empty">
+            <strong>No upcoming events.</strong><br />
+            ${
+              state.viewer?.isOrganizer
+                ? 'Use “+ New event” to add one.'
+                : 'Only an organizer can add them.'
+            }
+          </p>`;
+    // Past events stay out of the way, but someone checking who brought what
+    // last week should not have to switch to the month grid to find it. Older
+    // months may not be loaded yet, so the button is offered either way.
+    const canLoadMore = Boolean(state.since);
+    const pastPart =
+      earlier.length || canLoadMore
+        ? `<button type="button" class="btn link past-toggle" data-toggle-past aria-expanded="${state.showPast}">${
+            state.showPast ? 'Hide past events' : 'Show past events'
+          }</button>
+           ${
+             state.showPast
+               ? `<h2 class="agenda-heading">Past events</h2>${
+                   earlier.length
+                     ? earlier.map(agendaCardHtml).join('')
+                     : '<p class="empty">No past events.</p>'
+                 }`
+               : ''
+           }`
+        : '';
+    el.agenda.innerHTML = filter + cards + pastPart;
   }
 
   // --- the sign-in screen ----------------------------------------------------
@@ -557,16 +679,15 @@ export function startApp(data, { onError } = {}) {
     render();
     await reload();
     state.loading = false;
-    const pending = state.pendingEvent ? eventById(state.pendingEvent) : null;
-    state.pendingEvent = null;
-    if (pending) {
-      state.cursor = startOfMonth(parseISODate(pending.date));
-      history.replaceState(null, '', `#event=${encodeURIComponent(pending.id)}`);
-      state.modal = { type: 'event', eventId: pending.id, form: null };
-    }
     renderIntro();
     render();
-    renderModal();
+    // An event link opened before signing in: put it back in the address and
+    // open it, the same way any event link opens.
+    if (state.pendingEvent) {
+      history.replaceState(null, '', `#event=${encodeURIComponent(state.pendingEvent)}`);
+      state.pendingEvent = null;
+    }
+    await openLinkedEvent();
   }
 
   /** A write found no session: back to the sign-in screen, keeping the event open. */
@@ -632,6 +753,26 @@ export function startApp(data, { onError } = {}) {
 
   let returnFocusTo = null;
 
+  // What the dialog's forms held when they were drawn, to tell whether
+  // closing it would throw away something the person typed.
+  let modalSnapshot = '';
+  function formSnapshot() {
+    return [...el.modalRoot.querySelectorAll('form')]
+      .map((form) => JSON.stringify([...new FormData(form).entries()]))
+      .join('|');
+  }
+
+  /**
+   * Escape, the backdrop and the × all close the dialog. If that would lose
+   * what someone typed, ask first. The Cancel buttons are an explicit choice
+   * to discard, so they close without asking.
+   */
+  function requestClose() {
+    if (!state.modal) return;
+    if (formSnapshot() !== modalSnapshot && !window.confirm('Discard what you have typed?')) return;
+    closeModal();
+  }
+
   /**
    * Where to put the keyboard when the dialog closes. A sign-up redraws the
    * whole month, so holding the element alone is not enough — the node that
@@ -647,6 +788,9 @@ export function startApp(data, { onError } = {}) {
 
   function openModal(modal) {
     if (!state.modal) returnFocusTo = focusAnchor(document.activeElement);
+    // A message about the last thing done should not sit over the next form.
+    clearTimeout(toastTimer);
+    el.toast.hidden = true;
     state.modal = modal;
     renderModal();
   }
@@ -656,7 +800,7 @@ export function startApp(data, { onError } = {}) {
     el.modalRoot.hidden = true;
     el.modalRoot.innerHTML = '';
     document.body.classList.remove('modal-open');
-    if (location.hash.startsWith('#event=')) history.replaceState(null, '', location.pathname);
+    if (location.hash.startsWith('#event=')) history.replaceState(null, '', location.pathname + location.search);
     // Without this the keyboard lands back at the top of the page every time.
     const back = returnFocusTo?.node?.isConnected
       ? returnFocusTo.node
@@ -667,7 +811,7 @@ export function startApp(data, { onError } = {}) {
     returnFocusTo = null;
   }
 
-  function renderModal() {
+  function renderModal({ focus = true } = {}) {
     const modal = state.modal;
     if (!modal) {
       closeModal();
@@ -677,7 +821,11 @@ export function startApp(data, { onError } = {}) {
     if (modal.type === 'account') html = accountModalHtml(modal);
     else if (modal.type === 'group') html = groupModalHtml(modal);
     else if (modal.type === 'eventForm')
-      html = eventFormHtml(modal.eventId ? eventById(modal.eventId) : null, modal.date);
+      html = eventFormHtml(
+        modal.eventId ? eventById(modal.eventId) : null,
+        modal.date,
+        modal.copyOf ? eventById(modal.copyOf) : null,
+      );
     else {
       const event = eventById(modal.eventId);
       if (!event) {
@@ -689,6 +837,8 @@ export function startApp(data, { onError } = {}) {
     el.modalRoot.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">${html}</div>`;
     el.modalRoot.hidden = false;
     document.body.classList.add('modal-open');
+    modalSnapshot = formSnapshot();
+    if (!focus) return;
     const focusTarget = el.modalRoot.querySelector('[data-autofocus]') ?? el.modalRoot.querySelector('.close');
     focusTarget?.focus();
   }
@@ -756,7 +906,7 @@ export function startApp(data, { onError } = {}) {
       <form class="signup" data-form="rename">
         <div class="field">
           <label for="rename-name">Your name</label>
-          <input id="rename-name" name="name" maxlength="80" value="${esc(viewer.name ?? '')}"
+          <input id="rename-name" name="name" maxlength="${LIMITS.name}" value="${esc(viewer.name ?? '')}"
                  autocomplete="name" required />
           <span class="help">Shown in the header and filled in when you sign up for something.</span>
         </div>
@@ -866,8 +1016,14 @@ export function startApp(data, { onError } = {}) {
     renderModal();
   }
 
-  function signupLine(signup, { nested = false } = {}) {
+  function signupLine(signup, { nested = false, modal = null, slotLabel = '' } = {}) {
+    // Editing happens in place: the line becomes the form.
+    if (modal?.form?.editId === signup.id) {
+      return signupFormHtml({ kind: signup.kind, slotId: signup.slotId ?? '', slotLabel, signup });
+    }
     const details = [signup.item, signup.note].filter(Boolean).join(' — ');
+    // Only organizers, and the person who left it, are ever sent a contact.
+    const contactNote = state.viewer?.isOrganizer ? '' : ' (only organizers see this)';
     return `<div class="slot person${nested ? ' nested' : ''}${signup.isMine ? ' mine' : ''}">
       <div>
         <span class="slot-label">${esc(signup.name)}${
@@ -875,69 +1031,104 @@ export function startApp(data, { onError } = {}) {
         }</span>
         ${details ? `<div class="slot-people">${esc(details)}</div>` : ''}
         ${signup.address ? `<div class="slot-people">${esc(signup.address)}</div>` : ''}
-        ${signup.contact ? `<div class="slot-people">${esc(signup.contact)}</div>` : ''}
+        ${signup.contact ? contactHtml(signup.contact, contactNote) : ''}
       </div>
       <div class="slot-actions">
         ${
           signup.canManage
-            ? `<button type="button" class="btn link danger" data-cancel-signup="${esc(
-                signup.id,
-              )}" data-signup-name="${esc(signup.name)}">Remove</button>`
+            ? `<button type="button" class="btn link" data-edit-signup="${esc(signup.id)}"
+                 aria-label="Edit ${esc(signup.name)}'s sign-up">Edit</button>
+               <button type="button" class="btn link danger" data-cancel-signup="${esc(
+                 signup.id,
+               )}" data-signup-name="${esc(signup.name)}">Remove</button>`
             : ''
         }
       </div>
     </div>`;
   }
 
-  function signupFormHtml({ kind, slotId = '', slotLabel = '', needsItem }) {
-    return `<form class="signup boxed" data-form="signup" data-kind="${esc(kind)}" data-slot="${esc(slotId)}">
-      <p class="form-title">${
-        kind === 'host'
-          ? 'Sign up to host'
-          : slotLabel
-            ? `Signing up for <strong>${esc(slotLabel)}</strong>`
-            : 'Food outside the listed slots'
-      }</p>
+  /**
+   * A contact line. An organizer can tap a phone number to text it, or an
+   * email to write; anyone else only ever sees their own, as plain text.
+   */
+  function contactHtml(contact, note) {
+    const link = state.viewer?.isOrganizer ? contactLink(contact) : null;
+    if (!link) return `<div class="slot-people contact">${esc(contact)}${esc(note)}</div>`;
+    return `<div class="slot-people contact">
+      <a class="contact-link" href="${esc(link.href)}" aria-label="${esc(`${link.label} ${contact}`)}">${esc(
+        contact,
+      )}<span class="contact-action">${esc(link.label)}</span></a>
+    </div>`;
+  }
+
+  /**
+   * The sign-up form, for a new sign-up or, given `signup`, for changing one.
+   * An edit changes what a sign-up says, never which slot or role it is for;
+   * the database allows no more than that.
+   */
+  function signupFormHtml({ kind, slotId = '', slotLabel = '', signup = null }) {
+    const editing = Boolean(signup);
+    const host = kind === 'host';
+    const value = (field, key) => esc(editing ? signup[field] : key ? remembered.read(key) : '');
+    const title = editing
+      ? host
+        ? 'Change your host sign-up'
+        : `Change what you are bringing${slotLabel ? ` for <strong>${esc(slotLabel)}</strong>` : ''}`
+      : host
+        ? 'Sign up to host'
+        : slotLabel
+          ? `Signing up for <strong>${esc(slotLabel)}</strong>`
+          : 'Food outside the listed slots';
+    return `<form class="signup boxed" data-form="signup" data-kind="${esc(kind)}" data-slot="${esc(
+      slotId,
+    )}" data-edit-id="${esc(signup?.id ?? '')}">
+      <p class="form-title">${title}</p>
       <div class="row">
         <div class="field">
           <label for="su-name">Your name</label>
-          <input id="su-name" name="name" maxlength="80" value="${esc(
-            state.viewer?.name || remembered.read(NAME_KEY),
-          )}" data-autofocus required />
+          <input id="su-name" name="name" maxlength="${LIMITS.name}" autocomplete="name"
+                 value="${editing ? value('name') : esc(state.viewer?.name || remembered.read(NAME_KEY))}"
+                 data-autofocus required />
         </div>
         <div class="field">
-          <label for="su-contact">Phone or email <span class="help">(optional)</span></label>
-          <input id="su-contact" name="contact" value="${esc(remembered.read(CONTACT_KEY))}" />
+          <label for="su-contact">Phone or email <span class="help">(optional, organizers only)</span></label>
+          <input id="su-contact" name="contact" maxlength="${LIMITS.contact}"
+                 value="${value('contact', CONTACT_KEY)}" />
         </div>
       </div>
       ${
-        needsItem
-          ? `<div class="field">
+        host
+          ? ''
+          : `<div class="field">
               <label for="su-item">What you will bring</label>
-              <input id="su-item" name="item" placeholder="e.g. chicken enchiladas for 12" required />
+              <input id="su-item" name="item" maxlength="${LIMITS.item}" value="${value('item')}"
+                     placeholder="e.g. chicken enchiladas for 12" required />
             </div>`
-          : ''
       }
       ${
         kind === 'host'
           ? `<div class="field">
               <label for="su-address">Address <span class="help">(optional)</span></label>
-              <input id="su-address" name="address" maxlength="200" autocomplete="street-address"
-                     placeholder="e.g. 12 Oak St, Augusta, GA 30901" />
+              <input id="su-address" name="address" maxlength="${LIMITS.address}" autocomplete="street-address"
+                     value="${value('address')}" placeholder="e.g. 12 Oak St, Augusta, GA 30901" />
               <span class="help">A full street address shows on the map in everyone's calendar.</span>
             </div>`
           : ''
       }
       <div class="field">
         <label for="su-note">Note <span class="help">(optional)</span></label>
-        <input id="su-note" name="note" maxlength="280" placeholder="${esc(
-          kind === 'host' ? 'Parking, which door to use…' : 'Gluten free, needs oven space…',
-        )}" />
+        <input id="su-note" name="note" maxlength="${LIMITS.note}" value="${value('note')}" placeholder="${
+          host ? 'Parking, which door to use…' : 'Gluten free, needs oven space…'
+        }" />
       </div>
-      <p class="hint">Everyone in the group can see your sign-up. No email is sent.</p>
+      <p class="hint">Everyone in the group can see your sign-up${
+        host ? ', address included' : ''
+      }. Your phone or email is shown only to the organizers. No email is sent.</p>
       <p class="error" data-error hidden></p>
       <div class="form-actions">
-        <button type="submit" class="btn primary">${kind === 'host' ? 'Sign up to host' : 'Add sign-up'}</button>
+        <button type="submit" class="btn primary">${
+          editing ? 'Save changes' : host ? 'Sign up to host' : 'Add sign-up'
+        }</button>
         <button type="button" class="btn ghost" data-cancel-form>Cancel</button>
       </div>
     </form>`;
@@ -945,18 +1136,26 @@ export function startApp(data, { onError } = {}) {
 
   function hostSectionHtml(event, modal) {
     if (!event.needsHost && !event.hosts.length) return '';
-    const formOpen = modal.form?.kind === 'host';
-    const spotsLeft = event.hostSpotsLeft;
+    const formOpen = modal.form?.kind === 'host' && !modal.form.editId;
+    const spotsLeft = event.closed ? 0 : event.hostSpotsLeft;
+    // Worded like the badge on the card, so the two read as the same thing.
+    const note = event.closed
+      ? ''
+      : spotsLeft > 0
+        ? spotsLeft === 1 && !event.hosts.length
+          ? 'Needs a host'
+          : `Needs ${spotsLeft} more`
+        : 'Filled';
     return `<div class="section">
-      <h3>Host <span class="section-note">${
-        spotsLeft > 0
-          ? esc(spotsLeft === 1 ? 'unfilled' : `${spotsLeft} more needed`)
-          : 'filled'
-      }</span></h3>
+      <h3>Host ${note ? `<span class="section-note${spotsLeft > 0 ? ' warn' : ''}">${esc(note)}</span>` : ''}</h3>
       ${
         event.hosts.length
-          ? event.hosts.map((h) => signupLine(h)).join('')
-          : '<p class="hint">The host provides the location. No one has signed up.</p>'
+          ? event.hosts.map((h) => signupLine(h, { modal })).join('')
+          : `<p class="hint">${
+              event.closed
+                ? 'Nobody signed up to host.'
+                : 'Nobody has signed up to host yet.'
+            }</p>`
       }
       ${
         spotsLeft > 0 && !formOpen
@@ -965,25 +1164,16 @@ export function startApp(data, { onError } = {}) {
             }</button>`
           : ''
       }
-      ${formOpen ? signupFormHtml({ kind: 'host', needsItem: false }) : ''}
+      ${formOpen ? signupFormHtml({ kind: 'host' }) : ''}
     </div>`;
   }
 
-  function slotStatus(slot) {
-    if (slot.noMinimum) return { text: `${slot.taken} signed up. No number set.`, tone: 'open' };
-    // Past the number asked for, "5 of 2" reads like a mistake; just say how
-    // many are coming.
-    if (slot.taken > slot.needed) return { text: `${slot.taken} signed up. Covered.`, tone: 'done' };
-    if (slot.met) return { text: `${slot.taken} of ${slot.needed}. Covered.`, tone: 'done' };
-    return { text: `${slot.taken} of ${slot.needed}. ${slot.stillNeeded} more needed.`, tone: 'open' };
-  }
-
   function foodSectionHtml(event, modal) {
-    const form = modal.form?.kind === 'food' ? modal.form : null;
+    const form = modal.form?.kind === 'food' && !modal.form.editId ? modal.form : null;
     const slots = event.foodSlots
       .map((slot) => {
         const openForm = form && form.slotId === slot.id;
-        const status = slotStatus(slot);
+        const status = slotStatus(slot, { past: event.closed });
         return `<div class="slot-group">
           <div class="slot${status.tone === 'done' ? ' filled' : ''}">
             <div>
@@ -992,49 +1182,45 @@ export function startApp(data, { onError } = {}) {
             </div>
             <div class="slot-actions">
               ${
-                openForm
+                openForm || event.closed
                   ? ''
                   : `<button type="button" class="btn${slot.met ? '' : ' primary'}" data-open-form="food"
-                       data-slot="${esc(slot.id)}" data-slot-label="${esc(
-                         slot.label,
-                       )}">Sign up</button>`
+                       data-slot="${esc(slot.id)}" data-slot-label="${esc(slot.label)}"
+                       aria-label="Sign up for ${esc(slot.label)}">Sign up</button>`
               }
             </div>
           </div>
-          ${slot.people.map((p) => signupLine(p, { nested: true })).join('')}
-          ${openForm ? signupFormHtml({ kind: 'food', slotId: slot.id, slotLabel: slot.label, needsItem: true }) : ''}
+          ${slot.people.map((p) => signupLine(p, { nested: true, modal, slotLabel: slot.label })).join('')}
+          ${openForm ? signupFormHtml({ kind: 'food', slotId: slot.id, slotLabel: slot.label }) : ''}
         </div>`;
       })
       .join('');
 
+    if (event.closed && !event.foodSlots.length && !event.otherFood.length) return '';
     const otherFormOpen = form && !form.slotId;
+    const short = foodStillNeeded(event);
+    const note =
+      event.closed || !event.foodSlots.length ? '' : short > 0 ? `${short} more needed` : 'Every slot covered';
+    const intro = event.closed
+      ? ''
+      : event.foodSlots.length
+        ? `<p class="hint">Pick a slot and say what you are bringing. The number is how many people the
+             organizer wants; a slot never closes, so you can always add to one.</p>`
+        : '<p class="hint">No slots are set for this event. Bring anything.</p>';
     return `<div class="section">
-      <h3>Food <span class="section-note">${
-        event.foodSlots.length
-          ? esc(
-              foodStillNeeded(event) > 0
-                ? `${foodStillNeeded(event)} more needed`
-                : 'every slot covered',
-            )
-          : ''
-      }</span></h3>
-      ${
-        event.foodSlots.length
-          ? `<p class="hint">Sign up for a slot and enter what you are bringing. The number is how many
-               people the organizer wants; a slot never closes, so you can always add to one.</p>${slots}`
-          : '<p class="hint">No slots are set for this event. Bring anything.</p>'
-      }
+      <h3>Food ${note ? `<span class="section-note${short > 0 ? ' warn' : ''}">${esc(note)}</span>` : ''}</h3>
+      ${intro}${slots}
       ${
         event.otherFood.length
-          ? `<p class="hint">Other food:</p>${event.otherFood.map((p) => signupLine(p)).join('')}`
+          ? `<p class="hint">Other food:</p>${event.otherFood.map((p) => signupLine(p, { modal })).join('')}`
           : ''
       }
       ${
-        event.allowOtherFood && !otherFormOpen
+        event.allowOtherFood && !otherFormOpen && !event.closed
           ? '<button type="button" class="btn" data-open-form="food">Add other food</button>'
           : ''
       }
-      ${otherFormOpen ? signupFormHtml({ kind: 'food', needsItem: true }) : ''}
+      ${otherFormOpen ? signupFormHtml({ kind: 'food' }) : ''}
     </div>`;
   }
 
@@ -1046,10 +1232,17 @@ export function startApp(data, { onError } = {}) {
           <h2 id="modal-title">${esc(event.title)}</h2>
           <p class="when">${esc(formatLongDate(event.date))} · ${esc(formatTimeRange(event))}</p>
           ${event.location ? `<p class="when">${esc(event.location)}</p>` : ''}
+          ${
+            // Only the host's name: their address is shared with the group
+            // separately, never on this page.
+            event.hosts.length
+              ? `<p class="when">Hosted by ${esc(event.hosts.map((h) => h.name).join(', '))}</p>`
+              : ''
+          }
         </div>
         <button type="button" class="close" data-close aria-label="Close">&times;</button>
       </div>
-      <p class="summary${summary.done ? ' done' : ''}">${esc(summary.text)}</p>
+      <p class="summary${summary.done ? ' done' : ''}${summary.closed ? ' closed' : ''}">${esc(summary.text)}</p>
       ${event.description ? `<p class="description">${esc(event.description)}</p>` : ''}
       ${
         event.mine.length
@@ -1062,23 +1255,38 @@ export function startApp(data, { onError } = {}) {
       ${foodSectionHtml(event, modal)}
       <div class="section footer-actions">
         <div class="form-actions">
-          <button type="button" class="btn" data-copy-event="${esc(event.id)}">Copy link to this event</button>
           ${
-            state.viewer?.isOrganizer
-              ? `<button type="button" class="btn" data-edit-event="${esc(event.id)}">Edit event</button>
-                 <button type="button" class="btn link danger" data-delete-event="${esc(
-                   event.id,
-                 )}">Delete event</button>`
-              : ''
+            event.closed
+              ? ''
+              : `<button type="button" class="btn" data-add-to-calendar="${esc(event.id)}">Add to my calendar</button>`
           }
+          <button type="button" class="btn" data-copy-event="${esc(event.id)}">Copy link to this event</button>
           <button type="button" class="btn ghost push-right" data-close>Close</button>
         </div>
+        ${
+          state.viewer?.isOrganizer
+            ? `<div class="form-actions organizer-actions">
+                <button type="button" class="btn" data-edit-event="${esc(event.id)}">Edit event</button>
+                <button type="button" class="btn" data-duplicate-event="${esc(event.id)}">Duplicate</button>
+                ${
+                  event.cancelled
+                    ? `<button type="button" class="btn" data-restore-event="${esc(event.id)}">Restore event</button>`
+                    : event.past
+                      ? ''
+                      : `<button type="button" class="btn link danger" data-cancel-event="${esc(
+                          event.id,
+                        )}">Cancel event</button>`
+                }
+                <button type="button" class="btn link danger" data-delete-event="${esc(event.id)}">Delete event</button>
+              </div>`
+            : ''
+        }
       </div>`;
   }
 
   function slotEditorRow(slot = { label: '', needed: 1, id: '' }) {
     return `<div class="slot-editor-row" data-slot-row>
-      <input name="slot-label" placeholder="e.g. Main dish" aria-label="What people bring" value="${esc(
+      <input name="slot-label" maxlength="${LIMITS.slotLabel}" placeholder="e.g. Main dish" aria-label="What people bring" value="${esc(
         slot.label,
       )}" />
       <input name="slot-needed" type="number" min="0" value="${esc(
@@ -1089,15 +1297,32 @@ export function startApp(data, { onError } = {}) {
     </div>`;
   }
 
-  function eventFormHtml(event, presetDate) {
+  /**
+   * The event editor. `event` edits that event; `copyOf` starts a new one from
+   * an existing event, a week later; neither starts from scratch.
+   */
+  function eventFormHtml(event, presetDate, copyOf = null) {
     const editing = Boolean(event);
-    const slots = editing && event.foodSlots.length ? event.foodSlots : [{ label: 'Main dish', needed: 1, id: '' }];
-    const needsHost = event ? event.needsHost : true;
+    // What the fields start out holding.
+    const source = event ?? (copyOf ? eventCopy(copyOf, 1) : null);
+    // A new event starts with one slot to show how it works. An event being
+    // edited keeps exactly the slots it has — none, if the organizer removed them.
+    // A copy takes the same slots, as new ones.
+    const slots = editing
+      ? event.foodSlots
+      : copyOf
+        ? slotCopies(copyOf.foodSlots)
+        : [{ label: 'Main dish', needed: 1, id: '' }];
+    const needsHost = source ? source.needsHost : true;
     return `
       <div class="modal-head">
         <div>
-          <h2 id="modal-title">${editing ? 'Edit event' : 'New event'}</h2>
-          <p class="when">Visible to everyone in the group.</p>
+          <h2 id="modal-title">${editing ? 'Edit event' : copyOf ? 'Duplicate event' : 'New event'}</h2>
+          <p class="when">${
+            copyOf
+              ? `A copy of “${esc(copyOf.title)}”, a week later. Sign-ups are not copied.`
+              : 'Visible to everyone in the group.'
+          }</p>
         </div>
         <button type="button" class="close" data-close aria-label="Close">&times;</button>
       </div>
@@ -1106,34 +1331,47 @@ export function startApp(data, { onError } = {}) {
           <legend>What and when</legend>
           <div class="field">
             <label for="ev-title">Title</label>
-            <input id="ev-title" name="title" placeholder="e.g. Community Group — Week 3" value="${esc(
-              event?.title ?? '',
+            <input id="ev-title" name="title" maxlength="${LIMITS.title}" placeholder="e.g. Community Group — Week 3" value="${esc(
+              source?.title ?? '',
             )}" data-autofocus required />
           </div>
-          <div class="row">
-            <div class="field">
-              <label for="ev-date">Date</label>
-              <input id="ev-date" name="date" type="date" value="${esc(
-                event?.date ?? presetDate ?? isoDate(new Date()),
-              )}" required />
-            </div>
-            <div class="field">
-              <label for="ev-start">Start time</label>
-              <input id="ev-start" name="startTime" type="time" value="${esc(event?.startTime ?? '18:00')}" />
-            </div>
+          <div class="field narrow">
+            <label for="ev-date">Date</label>
+            <input id="ev-date" name="date" type="date" value="${esc(
+              source?.date ?? presetDate ?? isoDate(new Date()),
+            )}" required />
           </div>
           <div class="row">
             <div class="field">
+              <label for="ev-start">Start time</label>
+              <input id="ev-start" name="startTime" type="time" value="${esc(source?.startTime ?? '18:00')}" />
+            </div>
+            <div class="field">
               <label for="ev-end">End time <span class="help">(optional)</span></label>
-              <input id="ev-end" name="endTime" type="time" value="${esc(event?.endTime ?? '')}" />
+              <input id="ev-end" name="endTime" type="time" value="${esc(source?.endTime ?? '')}" />
             </div>
           </div>
           <div class="field">
             <label for="ev-description">Details <span class="help">(optional)</span></label>
-            <textarea id="ev-description" name="description" placeholder="Topic, whether kids are welcome, other details">${esc(
-              event?.description ?? '',
+            <textarea id="ev-description" name="description" maxlength="${LIMITS.description}" placeholder="Topic, other details">${esc(
+              source?.description ?? '',
             )}</textarea>
           </div>
+          ${
+            editing
+              ? ''
+              : `<div class="field">
+                  <label for="ev-repeat">Repeat weekly <span class="help">(optional)</span></label>
+                  <div class="inline-field">
+                    <span>Also add it for the next</span>
+                    <input id="ev-repeat" name="repeatWeeks" type="number" min="0" max="${MAX_REPEAT_WEEKS}"
+                           value="0" inputmode="numeric" />
+                    <span>weeks</span>
+                  </div>
+                  <span class="help">Each copy has the same time, host setting and food slots. A title
+                    ending in a number, like “Week 3”, counts up.</span>
+                </div>`
+          }
         </fieldset>
 
         <fieldset>
@@ -1151,7 +1389,7 @@ export function startApp(data, { onError } = {}) {
           <div class="field indented" data-show-when="hosting=needed" ${needsHost ? '' : 'hidden'}>
             <label for="ev-host-limit">How many hosts</label>
             <input id="ev-host-limit" name="hostLimit" type="number" min="1" value="${esc(
-              event?.hostLimit || 1,
+              source?.hostLimit || 1,
             )}" />
             <span class="help">The host enters the address when they sign up.</span>
           </div>
@@ -1163,8 +1401,8 @@ export function startApp(data, { onError } = {}) {
           </div>
           <div class="field indented wide" data-show-when="hosting=set" ${needsHost ? 'hidden' : ''}>
             <label for="ev-location">Location / address</label>
-            <input id="ev-location" name="location" maxlength="200" autocomplete="off"
-                   placeholder="e.g. 12 Oak St, Augusta, GA 30901" value="${esc(event?.location ?? '')}" />
+            <input id="ev-location" name="location" maxlength="${LIMITS.location}" autocomplete="off"
+                   placeholder="e.g. 12 Oak St, Augusta, GA 30901" value="${esc(source?.location ?? '')}" />
             <span class="help">A full street address opens in Maps from people's calendars.</span>
           </div>
         </fieldset>
@@ -1189,7 +1427,7 @@ export function startApp(data, { onError } = {}) {
           </div>
           <div class="checkbox">
             <input id="ev-other-food" name="allowOtherFood" type="checkbox" ${
-              event ? (event.allowOtherFood ? 'checked' : '') : 'checked'
+              source ? (source.allowOtherFood ? 'checked' : '') : 'checked'
             } />
             <label for="ev-other-food">Allow food outside these slots</label>
           </div>
@@ -1198,7 +1436,7 @@ export function startApp(data, { onError } = {}) {
         <p class="error" data-error hidden></p>
         <div class="form-actions">
           <button type="submit" class="btn primary">${editing ? 'Save changes' : 'Create event'}</button>
-          <button type="button" class="btn ghost" data-close>Cancel</button>
+          <button type="button" class="btn ghost" data-close data-discard>Cancel</button>
         </div>
       </form>`;
   }
@@ -1206,13 +1444,13 @@ export function startApp(data, { onError } = {}) {
   // --- form handling -------------------------------------------------------
 
   function collectSlots(form) {
-    return [...form.querySelectorAll('[data-slot-row]')]
-      .map((row) => ({
+    return cleanSlots(
+      [...form.querySelectorAll('[data-slot-row]')].map((row) => ({
         id: row.querySelector('[name="slot-id"]').value,
-        label: row.querySelector('[name="slot-label"]').value.trim(),
-        needed: Math.max(0, Number(row.querySelector('[name="slot-needed"]').value) || 0),
-      }))
-      .filter((slot) => slot.label);
+        label: row.querySelector('[name="slot-label"]').value,
+        needed: row.querySelector('[name="slot-needed"]').value,
+      })),
+    );
   }
 
   function showFormError(form, message) {
@@ -1226,47 +1464,88 @@ export function startApp(data, { onError } = {}) {
     target.scrollIntoView({ block: 'nearest' });
   }
 
+  /**
+   * Removing a slot keeps its sign-ups, as "Other food" — the database does
+   * that on its own, so say so before it happens rather than after.
+   */
+  function confirmSlotRemoval(form, slots) {
+    const existing = form.dataset.eventId ? eventById(form.dataset.eventId) : null;
+    if (!existing) return true;
+    const kept = new Set(slots.map((slot) => slot.id).filter(Boolean));
+    const affected = existing.foodSlots.filter((slot) => !kept.has(slot.id) && slot.people.length);
+    if (!affected.length) return true;
+    const list = affected
+      .map((slot) => `${slot.label} (${slot.people.map((p) => p.name).join(', ')})`)
+      .join('; ');
+    const people = affected.reduce((sum, slot) => sum + slot.people.length, 0);
+    return window.confirm(
+      `You removed ${affected.length === 1 ? 'a slot' : 'slots'} people signed up for: ${list}.\n\n` +
+        `${people === 1 ? 'That sign-up is' : `Those ${people} sign-ups are`} kept and moved to "Other food". ` +
+        'Save anyway?',
+    );
+  }
+
+  /** Returns false when the organizer backs out, so the form stays as it was. */
   async function submitEventForm(form) {
     const values = Object.fromEntries(new FormData(form).entries());
-    const needsHost = values.hosting === 'needed';
-    const id = await data.saveEvent(
-      {
-        id: form.dataset.eventId || null,
-        title: values.title,
-        date: values.date,
-        startTime: values.startTime ?? '',
-        endTime: values.endTime ?? '',
-        location: needsHost ? '' : (values.location ?? '').trim(),
-        description: values.description ?? '',
-        needsHost,
-        hostLimit: Math.max(1, Number(values.hostLimit) || 1),
-        allowOtherFood: form.querySelector('[name="allowOtherFood"]').checked,
-      },
-      collectSlots(form),
-    );
+    const event = eventFromForm(values, {
+      id: form.dataset.eventId,
+      allowOtherFood: form.querySelector('[name="allowOtherFood"]').checked,
+    });
+    const slots = collectSlots(form);
+    if (!confirmSlotRemoval(form, slots)) return false;
+    // An earlier month may not have been loaded; saving into it should still
+    // show the event afterwards.
+    if (state.since && event.date < state.since) state.since = event.date;
+    const repeat = form.dataset.eventId ? 0 : repeatCount(values.repeatWeeks);
+    const id = await data.saveEvent(event, slots);
+    // The copies go in one by one. If one fails, the ones already saved stay,
+    // and the message says how far it got rather than leaving the form up to
+    // be submitted again, which would make duplicates.
+    let made = 1;
+    let failure = null;
+    for (let week = 1; week <= repeat && !failure; week += 1) {
+      try {
+        await data.saveEvent(eventCopy(event, week), slotCopies(slots));
+        made += 1;
+      } catch (err) {
+        failure = err;
+      }
+    }
     await reload();
     render();
     openModal({ type: 'event', eventId: id, form: null });
-    toast(form.dataset.eventId ? 'Event updated.' : 'Event created.');
+    if (failure) toast(`Created ${made} of ${repeat + 1} events. The rest failed: ${failure.message}`, 'error');
+    else if (repeat) toast(`Created ${made} events, one a week.`);
+    else toast(form.dataset.eventId ? 'Event updated.' : 'Event created.');
   }
 
   async function submitSignupForm(form) {
     const values = Object.fromEntries(new FormData(form).entries());
-    remembered.write(NAME_KEY, values.name?.trim());
-    remembered.write(CONTACT_KEY, values.contact?.trim() ?? '');
-    await data.addSignup({
-      eventId: state.modal.eventId,
+    // Held on to, because the dialog may be closed while the save is running.
+    const modal = state.modal;
+    const signup = signupFromForm(values, {
+      eventId: modal.eventId,
       kind: form.dataset.kind,
-      slotId: form.dataset.slot || null,
-      name: values.name,
-      contact: values.contact ?? '',
-      item: values.item ?? '',
-      note: values.note ?? '',
-      address: (values.address ?? '').trim(),
+      slotId: form.dataset.slot,
     });
-    state.modal.form = null;
+    const editId = form.dataset.editId;
+    const editing = editId ? state.events.flatMap((e) => e.signups).find((s) => s.id === editId) : null;
+    // Pre-fill next time with your own details, not with someone an organizer
+    // was correcting.
+    if (!editing || editing.isMine) {
+      remembered.write(NAME_KEY, signup.name);
+      remembered.write(CONTACT_KEY, signup.contact);
+    }
+    if (editId) {
+      const { name, contact, item, note, address } = signup;
+      await data.updateSignup(editId, { name, contact, item, note, ...(signup.kind === 'host' ? { address } : {}) });
+    } else {
+      await data.addSignup(signup);
+    }
+    modal.form = null;
     await refresh();
-    toast(form.dataset.kind === 'host' ? 'Signed up to host.' : 'Sign-up added.');
+    toast(editId ? 'Sign-up updated.' : form.dataset.kind === 'host' ? 'Signed up to host.' : 'Sign-up added.');
   }
 
   async function submitRenameForm(form) {
@@ -1291,6 +1570,19 @@ export function startApp(data, { onError } = {}) {
     state.events = [];
     closeModal();
     showGate('signin', { notice: { tone: 'ok', text: 'Signed out.' } });
+  }
+
+  /** Hands the browser a calendar file for the event; the phone offers to add it. */
+  function downloadIcs(event) {
+    const url = `${location.origin}${location.pathname}#event=${event.id}`;
+    const blob = new Blob([eventToIcs(event, { url })], { type: 'text/calendar;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = icsFileName(event);
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
   }
 
   async function copyText(text, what) {
@@ -1318,8 +1610,10 @@ export function startApp(data, { onError } = {}) {
         state.cursor = addMonths(state.cursor, target.id === 'prev' ? -1 : 1);
         state.expandedDay = null;
         render();
+        await loadEarlierIfNeeded();
       } else if (target.id === 'today') {
         state.cursor = startOfMonth(new Date());
+        state.expandedDay = null;
         render();
       } else if (target.id === 'help-btn') {
         toggleIntro();
@@ -1380,6 +1674,15 @@ export function startApp(data, { onError } = {}) {
           state.cursor = startOfMonth(parseISODate(event.date));
           render();
         }
+      } else if (target.hasAttribute('data-toggle-past')) {
+        state.showPast = !state.showPast;
+        render();
+        // Older months are only loaded on demand; showing the past is a demand.
+        if (state.showPast && state.since) {
+          state.since = null;
+          await reload();
+          render();
+        }
       } else if (target.dataset.expandDay) {
         state.expandedDay = target.dataset.expandDay;
         render();
@@ -1389,15 +1692,47 @@ export function startApp(data, { onError } = {}) {
         history.replaceState(null, '', `#event=${target.dataset.event}`);
         openModal({ type: 'event', eventId: target.dataset.event, form: null });
       } else if (target.hasAttribute('data-close')) {
-        closeModal();
+        if (target.hasAttribute('data-discard')) closeModal();
+        else requestClose();
       } else if (target.dataset.openForm) {
         state.modal.form = { kind: target.dataset.openForm, slotId: target.dataset.slot || null };
         renderModal();
+      } else if (target.dataset.editSignup) {
+        const signup = eventById(state.modal.eventId)?.signups.find((s) => s.id === target.dataset.editSignup);
+        if (signup) {
+          state.modal.form = { kind: signup.kind, slotId: signup.slotId || null, editId: signup.id };
+          renderModal();
+        }
       } else if (target.hasAttribute('data-cancel-form')) {
         state.modal.form = null;
         renderModal();
       } else if (target.dataset.copyEvent) {
         await copyLink(`${location.origin}${location.pathname}#event=${target.dataset.copyEvent}`, 'Event link');
+      } else if (target.dataset.addToCalendar) {
+        const event = eventById(target.dataset.addToCalendar);
+        if (event) downloadIcs(event);
+      } else if (target.dataset.duplicateEvent) {
+        openModal({ type: 'eventForm', eventId: null, copyOf: target.dataset.duplicateEvent });
+      } else if (target.dataset.cancelEvent) {
+        const event = eventById(target.dataset.cancelEvent);
+        if (
+          !window.confirm(
+            `Cancel “${event?.title ?? 'this event'}”?\n\nIt stays on the calendar marked as cancelled, ` +
+              'and it stops taking sign-ups. Nobody is notified, so let the group know.',
+          )
+        ) {
+          return;
+        }
+        await data.setCancelled(target.dataset.cancelEvent, true);
+        await refresh();
+        toast('Event cancelled.');
+      } else if (target.dataset.restoreEvent) {
+        await data.setCancelled(target.dataset.restoreEvent, false);
+        await refresh();
+        toast('Event restored.');
+      } else if (target.hasAttribute('data-only-mine')) {
+        state.onlyMine = !state.onlyMine;
+        render();
       } else if (target.dataset.editEvent) {
         openModal({ type: 'eventForm', eventId: target.dataset.editEvent });
       } else if (target.dataset.deleteEvent) {
@@ -1475,7 +1810,8 @@ export function startApp(data, { onError } = {}) {
       else if (form.dataset.form === 'invite') await submitInviteForm(form);
       else if (form.dataset.form === 'event') await submitEventForm(form);
       else await submitSignupForm(form);
-      // Forms that stay on screen after saving get their button back.
+      // A form still on screen after saving (or after declining to) gets its
+      // button back.
       if (submit?.isConnected) {
         submit.disabled = false;
         submit.textContent = label;
@@ -1494,11 +1830,11 @@ export function startApp(data, { onError } = {}) {
   });
 
   el.modalRoot.addEventListener('click', (domEvent) => {
-    if (domEvent.target === el.modalRoot) closeModal();
+    if (domEvent.target === el.modalRoot) requestClose();
   });
 
   document.addEventListener('keydown', (domEvent) => {
-    if (domEvent.key === 'Escape' && state.modal) closeModal();
+    if (domEvent.key === 'Escape' && state.modal) requestClose();
     else trapFocus(domEvent);
   });
 
@@ -1517,12 +1853,50 @@ export function startApp(data, { onError } = {}) {
     }, 150);
   });
 
-  // Someone else may have taken the last main dish while this tab sat open.
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && !state.loading && !state.gate && state.viewer) {
-      refresh().catch(() => {});
+  // Someone else may have signed up while this tab sat open. A quick glance at
+  // another app is not worth a reload, so only refresh after a while.
+  const STALE_AFTER_MS = 30_000;
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState !== 'visible' || state.loading || state.gate || !state.viewer) return;
+    if (Date.now() - state.loadedAt < STALE_AFTER_MS) return;
+    try {
+      await reload();
+      render();
+      // Redrawing the dialog would wipe anything half-typed — someone who
+      // switched apps to look up their address comes back to an empty form.
+      // A dialog with no form in it is safe to bring up to date.
+      const modal = state.modal;
+      if (modal?.type === 'event' && !modal.form) renderModal({ focus: false });
+    } catch {
+      /* the next action will surface the problem */
     }
   });
+
+  // A link to another event pasted into this tab changes only the hash.
+  window.addEventListener('hashchange', () => {
+    openLinkedEvent().catch((err) => toast(err.message, 'error'));
+  });
+
+  async function openLinkedEvent() {
+    const deepLink = location.hash.match(/^#event=(.+)$/);
+    if (!deepLink) return;
+    // Behind the sign-in screen: hold on to it until the person is in.
+    if (state.gate) {
+      state.pendingEvent = decodeURIComponent(deepLink[1]);
+      renderGate();
+      return;
+    }
+    const event = await findLinkedEvent(decodeURIComponent(deepLink[1]));
+    if (!event) {
+      history.replaceState(null, '', location.pathname + location.search);
+      render();
+      toast('That event is no longer on the calendar.', 'error');
+      return;
+    }
+    state.cursor = startOfMonth(parseISODate(event.date));
+    render();
+    openModal({ type: 'event', eventId: event.id, form: null });
+  }
 
   // --- boot ----------------------------------------------------------------
 

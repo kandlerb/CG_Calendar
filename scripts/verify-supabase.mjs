@@ -135,6 +135,15 @@ for (const table of ['events', 'food_slots', 'signups']) {
   );
 }
 
+// Contact details are for organizers; the grants in schema.sql leave the
+// column out of what a visitor may read, so asking for it is refused outright.
+const contacts = await api('/rest/v1/signups?select=contact&limit=1');
+check(
+  !contacts.ok,
+  'contact details are hidden from visitors',
+  contacts.ok ? 'THEY ARE READABLE — re-run supabase/schema.sql.' : `refused with ${contacts.status}`,
+);
+
 const organizers = await api('/rest/v1/organizers?select=user_id');
 check(
   !organizers.ok || (Array.isArray(organizers.data) && organizers.data.length === 0),
@@ -280,12 +289,44 @@ if (organizerEmail && organizerPassword) {
         );
 
         if (main) {
-          const claim = await api('/rest/v1/signups', {
+          // select=id, because returning the whole row would include contact.
+          const claim = await api('/rest/v1/signups?select=id', {
             method: 'POST',
             token,
-            body: { event_id: eventId, slot_id: main.id, kind: 'food', name: 'Setup check', item: 'Lasagna' },
+            headers: { prefer: 'return=representation' },
+            body: {
+              event_id: eventId,
+              slot_id: main.id,
+              kind: 'food',
+              name: 'Setup check',
+              item: 'Lasagna',
+              contact: 'setup-check@example.com',
+            },
           });
           check(claim.ok, 'a member can sign up for a food slot', claim.ok ? '' : errorText(claim.data));
+          const claimId = claim.data?.[0]?.id;
+
+          if (claimId) {
+            // The sign-up rules run when a sign-up is added. If one could be
+            // edited into a host afterwards, the one-host limit would mean nothing.
+            const promote = await api(`/rest/v1/signups?id=eq.${claimId}`, {
+              method: 'PATCH',
+              token,
+              body: { kind: 'host' },
+            });
+            check(
+              !promote.ok,
+              'a food sign-up cannot be edited into a host sign-up',
+              promote.ok ? 'IT SUCCEEDED — re-run supabase/schema.sql to narrow the update grant.' : `refused with ${promote.status}`,
+            );
+
+            const seen = await api('/rest/v1/rpc/signup_contacts', { method: 'POST', token, body: {} });
+            check(
+              seen.ok && seen.data?.some((row) => row.signup_id === claimId && row.contact === 'setup-check@example.com'),
+              'the organizer can see contact details',
+              seen.ok ? '' : errorText(seen.data),
+            );
+          }
 
           // The number on a slot is a minimum, so this second person belongs.
           const extra = await api('/rest/v1/signups', {

@@ -45,6 +45,10 @@ create table if not exists public.events (
   )
 );
 
+-- Added after the table: an organizer can call an event off without deleting
+-- it, so the people who saw it can see it was cancelled.
+alter table public.events add column if not exists cancelled boolean not null default false;
+
 create index if not exists events_date_idx on public.events (event_date);
 
 create table if not exists public.food_slots (
@@ -198,10 +202,26 @@ revoke all on public.organizers, public.events, public.food_slots, public.signup
   public.members, public.group_settings, public.join_attempts
   from anon, authenticated;
 
-grant select on public.organizers, public.events, public.food_slots, public.signups
+grant select on public.organizers, public.events, public.food_slots
   to authenticated;
-grant insert, update, delete on public.events, public.food_slots, public.signups
+grant insert, update, delete on public.events, public.food_slots
   to authenticated;
+
+-- Sign-ups are granted column by column.
+--
+-- Reading: everything but "contact". A phone number or email is for the
+-- organizers, not for every member; signup_contacts() below hands
+-- it out to the people allowed to see it.
+--
+-- Changing: only what a person typed. The sign-up rules run when a sign-up is
+-- added, so if "kind", "event_id" or "slot_id" could be changed afterwards, a
+-- food sign-up could turn itself into a second host, move to an event that
+-- needs no host, or point at another event's food slot. Nothing in the app
+-- moves a sign-up; cancelling and signing up again goes back through the rules.
+grant select (id, event_id, slot_id, kind, name, item, note, address, created_by, created_at)
+  on public.signups to authenticated;
+grant insert, delete on public.signups to authenticated;
+grant update (name, contact, item, note, address) on public.signups to authenticated;
 
 -- Your display name is yours to set. The grant names one column, so even with
 -- the policy below nobody can repoint their row at a different user_id.
@@ -214,41 +234,45 @@ grant select, update (invite_code) on public.group_settings to authenticated;
 -- members and join_attempts get no grants at all. Everything about them goes
 -- through the functions further down, which check who is asking.
 
+-- auth.uid(), is_organizer() and is_member() are wrapped in (select …)
+-- throughout, so Postgres works each out once per statement rather than once
+-- per row.
+
 -- Organizers: you may see your own row, and nothing else. Membership is
 -- managed from the dashboard, not from the app; your display name is not.
 drop policy if exists organizers_read_self on public.organizers;
 create policy organizers_read_self on public.organizers
-  for select using (user_id = auth.uid());
+  for select using (user_id = (select auth.uid()));
 
 -- Being an organizer is granted from the dashboard, but what the header calls
 -- you is only a label — so you may change your own, and nobody else's.
 drop policy if exists organizers_rename_self on public.organizers;
 create policy organizers_rename_self on public.organizers
-  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+  for update using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 
 drop policy if exists group_settings_organizers on public.group_settings;
 create policy group_settings_organizers on public.group_settings
-  for all using (public.is_organizer()) with check (public.is_organizer());
+  for all using ((select public.is_organizer())) with check ((select public.is_organizer()));
 
 -- Events and their food slots: members may read them; only organizers may
 -- write them.
 drop policy if exists events_read_all on public.events;
 drop policy if exists events_read_members on public.events;
 create policy events_read_members on public.events
-  for select using (public.is_member());
+  for select using ((select public.is_member()));
 
 drop policy if exists events_write_organizers on public.events;
 create policy events_write_organizers on public.events
-  for all using (public.is_organizer()) with check (public.is_organizer());
+  for all using ((select public.is_organizer())) with check ((select public.is_organizer()));
 
 drop policy if exists food_slots_read_all on public.food_slots;
 drop policy if exists food_slots_read_members on public.food_slots;
 create policy food_slots_read_members on public.food_slots
-  for select using (public.is_member());
+  for select using ((select public.is_member()));
 
 drop policy if exists food_slots_write_organizers on public.food_slots;
 create policy food_slots_write_organizers on public.food_slots
-  for all using (public.is_organizer()) with check (public.is_organizer());
+  for all using ((select public.is_organizer())) with check ((select public.is_organizer()));
 
 -- Sign-ups: members may read them and add their own. You may change or remove
 -- only the ones you created — unless you are an organizer, who may tidy up
@@ -256,20 +280,42 @@ create policy food_slots_write_organizers on public.food_slots
 drop policy if exists signups_read_all on public.signups;
 drop policy if exists signups_read_members on public.signups;
 create policy signups_read_members on public.signups
-  for select using (public.is_member());
+  for select using ((select public.is_member()));
 
 drop policy if exists signups_insert_own on public.signups;
 create policy signups_insert_own on public.signups
-  for insert with check (created_by = auth.uid() and public.is_member());
+  for insert with check (created_by = (select auth.uid()) and (select public.is_member()));
 
 drop policy if exists signups_update_own on public.signups;
 create policy signups_update_own on public.signups
-  for update using ((created_by = auth.uid() and public.is_member()) or public.is_organizer())
-  with check ((created_by = auth.uid() and public.is_member()) or public.is_organizer());
+  for update using ((created_by = (select auth.uid()) and (select public.is_member())) or (select public.is_organizer()))
+  with check ((created_by = (select auth.uid()) and (select public.is_member())) or (select public.is_organizer()));
 
 drop policy if exists signups_delete_own on public.signups;
 create policy signups_delete_own on public.signups
-  for delete using ((created_by = auth.uid() and public.is_member()) or public.is_organizer());
+  for delete using ((created_by = (select auth.uid()) and (select public.is_member())) or (select public.is_organizer()));
+
+-- ---------------------------------------------------------------------------
+-- Contact details
+-- ---------------------------------------------------------------------------
+
+-- The "contact" column cannot be read directly (see the grants above). This
+-- returns it for your own sign-ups, and for everyone's if you are an organizer.
+create or replace function public.signup_contacts()
+returns table (signup_id uuid, contact text)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select s.id, s.contact
+    from public.signups s
+   where s.contact <> ''
+     and (s.created_by = auth.uid() or public.is_organizer());
+$$;
+
+revoke all on function public.signup_contacts() from public, anon, authenticated;
+grant execute on function public.signup_contacts() to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Sign-up rules the database enforces
@@ -298,6 +344,9 @@ begin
   select * into v_event from public.events where id = new.event_id for update;
   if not found then
     raise exception 'That event no longer exists.';
+  end if;
+  if v_event.cancelled then
+    raise exception 'This event has been cancelled.';
   end if;
 
   if new.kind = 'host' then
@@ -709,6 +758,7 @@ begin
                'needs_host', e.needs_host,
                'host_limit', e.host_limit,
                'allow_other_food', e.allow_other_food,
+               'cancelled', e.cancelled,
                'updated_at', e.updated_at,
                'food_slots', coalesce((
                  select jsonb_agg(jsonb_build_object(

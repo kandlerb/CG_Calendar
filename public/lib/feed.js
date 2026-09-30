@@ -122,6 +122,7 @@ export function toFeedEvent(row) {
     needsHost: row.needs_host,
     hostLimit: row.host_limit,
     allowOtherFood: row.allow_other_food,
+    cancelled: Boolean(row.cancelled),
     updatedAt: row.updated_at ?? null,
     foodSlots: (row.food_slots ?? []).map((slot) => ({
       id: slot.id,
@@ -233,7 +234,10 @@ function eventLines(event, { siteUrl, now }) {
     );
   }
 
-  lines.push(`SUMMARY:${escapeText(event.title)}`);
+  // A cancelled event stays in the feed, marked, so it disappears from
+  // nobody's calendar without explanation.
+  if (event.cancelled) lines.push('STATUS:CANCELLED');
+  lines.push(`SUMMARY:${escapeText(event.cancelled ? `Cancelled: ${event.title}` : event.title)}`);
   const location = eventLocation(event);
   if (location) lines.push(`LOCATION:${escapeText(location)}`);
   lines.push(

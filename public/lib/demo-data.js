@@ -23,12 +23,13 @@ function seed() {
   const mainDish = 'demo-slot-main';
   const sides = 'demo-slot-sides';
   const dessert = 'demo-slot-dessert';
+  const lastWeek = 'demo-event-last-week';
   return {
     events: [
       {
         id: dinner,
         title: 'Community Group — Week 1',
-        description: 'Study in Philippians, chapter 2. Kids welcome.',
+        description: 'Study in Philippians, chapter 2.',
         location: '',
         date: relativeDate(3),
         startTime: '18:30',
@@ -48,8 +49,8 @@ function seed() {
             slotId: sides,
             kind: 'food',
             name: 'Marisol',
-            contact: '',
-            item: 'Tres leches cake',
+            contact: 'marisol@example.com',
+            item: 'Elote salad',
             note: '',
             createdBy: 'someone-else',
           },
@@ -72,6 +73,44 @@ function seed() {
           { id: 'demo-slot-drinks', label: 'Drinks', needed: 2, position: 2 },
         ],
         signups: [],
+      },
+      // Already happened, so the demo shows how a past event reads.
+      {
+        id: lastWeek,
+        title: 'Community Group — Week 0',
+        description: 'Kickoff night.',
+        location: '',
+        date: relativeDate(-7),
+        startTime: '18:30',
+        endTime: '20:30',
+        needsHost: true,
+        hostLimit: 1,
+        allowOtherFood: true,
+        foodSlots: [{ id: 'demo-slot-week0-main', label: 'Main dish', needed: 1, position: 0 }],
+        signups: [
+          {
+            id: 'demo-signup-week0-host',
+            eventId: lastWeek,
+            slotId: null,
+            kind: 'host',
+            name: 'The Parkers',
+            contact: '',
+            item: '',
+            note: '',
+            createdBy: 'someone-else',
+          },
+          {
+            id: 'demo-signup-week0-main',
+            eventId: lastWeek,
+            slotId: 'demo-slot-week0-main',
+            kind: 'food',
+            name: 'Dev',
+            contact: '',
+            item: 'Pulled pork',
+            note: '',
+            createdBy: 'someone-else',
+          },
+        ],
       },
     ],
   };
@@ -206,9 +245,17 @@ export function createDemoData({ buildFeed = null } = {}) {
       target.removed = removed;
     },
 
-    async loadEvents() {
+    async loadEvents({ since = null } = {}) {
       requireMember();
-      return structuredClone(state.events);
+      // Like the database, only organizers and the person who signed up see
+      // a sign-up's contact details.
+      const events = structuredClone(state.events.filter((e) => !since || e.date >= since));
+      for (const event of events) {
+        for (const signup of event.signups) {
+          if (!viewer.isOrganizer && signup.createdBy !== viewer.id) signup.contact = '';
+        }
+      }
+      return events;
     },
 
     async saveEvent(event, slots) {
@@ -241,6 +288,13 @@ export function createDemoData({ buildFeed = null } = {}) {
       return target.id;
     },
 
+    async setCancelled(id, cancelled) {
+      if (!viewer.isOrganizer) throw new Error('You are not allowed to do that.');
+      const event = find(id);
+      if (!event) throw new Error('That event no longer exists.');
+      event.cancelled = cancelled;
+    },
+
     async deleteEvent(id) {
       requireOrganizer();
       state.events = state.events.filter((e) => e.id !== id);
@@ -250,8 +304,10 @@ export function createDemoData({ buildFeed = null } = {}) {
       requireMember();
       const event = find(signup.eventId);
       if (!event) throw new Error('That event no longer exists.');
+      if (event.cancelled) throw new Error('This event has been cancelled.');
 
       if (signup.kind === 'host') {
+        if (!event.needsHost) throw new Error('This event does not need a host.');
         const taken = event.signups.filter((s) => s.kind === 'host').length;
         if (taken >= event.hostLimit) throw new Error('Someone already signed up to host this event.');
       } else if (signup.slotId) {
@@ -259,6 +315,8 @@ export function createDemoData({ buildFeed = null } = {}) {
         // being late, so there is nothing to refuse here.
         const slot = event.foodSlots.find((s) => s.id === signup.slotId);
         if (!slot) throw new Error('That food slot is no longer on this event.');
+      } else if (!event.allowOtherFood) {
+        throw new Error('Please choose one of the listed food slots.');
       }
 
       event.signups.push({
@@ -276,9 +334,13 @@ export function createDemoData({ buildFeed = null } = {}) {
     },
 
     async updateSignup(id, patch) {
+      // Only what a sign-up says can change, as in the database.
+      const allowed = ['name', 'contact', 'item', 'note', 'address'];
       for (const event of state.events) {
         const signup = event.signups.find((s) => s.id === id);
-        if (signup) Object.assign(signup, patch);
+        if (!signup) continue;
+        if (!viewer.isOrganizer && signup.createdBy !== me) throw new Error('You are not allowed to do that.');
+        for (const key of allowed) if (key in patch) signup[key] = patch[key];
       }
     },
 

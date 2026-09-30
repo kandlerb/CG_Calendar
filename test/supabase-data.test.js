@@ -19,20 +19,34 @@ const PERMISSION_DENIED = {
 };
 const OK = { data: null, error: null };
 
-function fakeClient({ current = null, membership = MEMBER, writes = [], rpcs = {}, auth = {}, refreshTo } = {}) {
+function fakeClient({
+  current = null,
+  membership = MEMBER,
+  membershipResult = null,
+  writes = [],
+  rpcs = {},
+  auth = {},
+  refreshTo,
+  events = [],
+  contacts = null,
+} = {}) {
   const log = [];
+  const selects = [];
+  const filters = [];
   let active = current;
 
   const builder = (table) => {
     let op = 'select';
     const finish = () => {
       log.push(`${table}:${op}`);
+      if (table === 'events' && op === 'select') return { data: structuredClone(events), error: null };
       return writes.length ? writes.shift() : OK;
     };
     const b = {
-      select: () => b,
+      select: (columns) => (selects.push(`${table}:${columns}`), b),
       eq: () => b,
-      order: () => b,
+      gte: (column, value) => (filters.push(`${table}:${column}>=${value}`), b),
+      order: (column, options = {}) => (filters.push(`${table}:order ${options.referencedTable ?? table}.${column}`), b),
       insert: () => ((op = 'insert'), b),
       update: () => ((op = 'update'), b),
       delete: () => ((op = 'delete'), b),
@@ -44,6 +58,8 @@ function fakeClient({ current = null, membership = MEMBER, writes = [], rpcs = {
 
   return {
     log,
+    selects,
+    filters,
     dropSession: () => {
       active = null;
     },
@@ -76,7 +92,8 @@ function fakeClient({ current = null, membership = MEMBER, writes = [], rpcs = {
     from: (table) => builder(table),
     rpc: async (name, args) => {
       log.push(`rpc:${name}`);
-      if (name === 'my_membership') return { data: active ? membership : null, error: null };
+      if (name === 'my_membership') return membershipResult ?? { data: active ? membership : null, error: null };
+      if (name === 'signup_contacts') return contacts ?? { data: [], error: null };
       if (rpcs[name]) return rpcs[name](args);
       return writes.length ? writes.shift() : OK;
     },
@@ -127,6 +144,29 @@ describe('who is looking', () => {
     assert.equal(viewer.isMember, false);
     assert.equal(viewer.removed, true);
   });
+
+  it('does not mistake a failed membership lookup for "not a member"', async () => {
+    const client = fakeClient({
+      current: session('anna'),
+      membershipResult: { data: null, error: { message: 'Failed to fetch' } },
+    });
+    const data = createSupabaseData(client);
+    await assert.rejects(data.init(), /Could not check who you are signed in as/);
+    assert.ok(!client.log.includes('sign out'));
+  });
+
+  const cases = [
+    [{ code: 'invalid_credentials', status: 400, message: 'Invalid login credentials' }, /did not match/],
+    [{ code: 'email_not_confirmed', status: 400, message: 'Email not confirmed' }, /Confirm your email/],
+    [{ code: 'over_request_rate_limit', status: 429, message: 'Request rate limit reached' }, /Too many/],
+    [{ status: 0, message: 'Failed to fetch' }, /Could not reach/],
+  ];
+  for (const [error, expected] of cases) {
+    it(`explains a "${error.message}" sign-in failure`, async () => {
+      const data = createSupabaseData(fakeClient({ auth: { signIn: () => ({ data: {}, error }) } }));
+      await assert.rejects(data.signIn('a@example.com', 'pw'), expected);
+    });
+  }
 
   it('turns a failed sign-in into a plain sentence', async () => {
     const data = createSupabaseData(
@@ -271,5 +311,102 @@ describe('writing with a session', () => {
     await data.init();
     await data.addSignup({ eventId: 'e1', kind: 'host', name: 'Anna', address: '12 Oak St' });
     assert.equal(sent.address, '12 Oak St');
+  });
+});
+
+describe('contact details', () => {
+  const eventRow = {
+    id: 'e1',
+    title: 'Dinner',
+    event_date: '2026-10-01',
+    needs_host: true,
+    host_limit: 1,
+    allow_other_food: true,
+    food_slots: [],
+    signups: [
+      { id: 'mine', event_id: 'e1', kind: 'food', name: 'Anna', item: 'Pie', created_by: 'anna' },
+      { id: 'theirs', event_id: 'e1', kind: 'food', name: 'Bob', item: 'Chili', created_by: 'someone' },
+    ],
+  };
+
+  it('never asks the database for the contact column, which it refuses', async () => {
+    const client = fakeClient({ current: session('anna'), events: [eventRow] });
+    const data = createSupabaseData(client);
+    await data.init();
+    await data.loadEvents();
+    const query = client.selects.find((s) => s.startsWith('events:'));
+    assert.ok(query, 'events were selected');
+    assert.doesNotMatch(query, /contact/);
+    assert.doesNotMatch(query, /signups\(\*\)/);
+    assert.match(query, /address/);
+  });
+
+  it('fills in only the contact details signup_contacts() hands back', async () => {
+    const client = fakeClient({
+      current: session('anna'),
+      events: [eventRow],
+      contacts: { data: [{ signup_id: 'mine', contact: '555-0100' }], error: null },
+    });
+    const data = createSupabaseData(client);
+    await data.init();
+    const [event] = await data.loadEvents();
+    assert.equal(event.signups.find((s) => s.id === 'mine').contact, '555-0100');
+    assert.equal(event.signups.find((s) => s.id === 'theirs').contact, '');
+  });
+
+  it('still loads the calendar when the contact lookup fails', async () => {
+    const client = fakeClient({
+      current: session('anna'),
+      events: [eventRow],
+      contacts: { data: null, error: { message: 'Could not find the function public.signup_contacts' } },
+    });
+    const data = createSupabaseData(client);
+    await data.init();
+    const [event] = await data.loadEvents();
+    assert.equal(event.signups.length, 2);
+    assert.ok(event.signups.every((s) => s.contact === ''));
+  });
+});
+
+describe('loading events', () => {
+  it('asks only for events from the given date on, with sign-ups in the order they were made', async () => {
+    const client = fakeClient({ current: session('anna') });
+    const data = createSupabaseData(client);
+    await data.init();
+    await data.loadEvents({ since: '2026-08-01' });
+    assert.ok(client.filters.includes('events:event_date>=2026-08-01'));
+    assert.ok(client.filters.includes('events:order signups.created_at'));
+  });
+
+  it('turns database rows into the shape the page uses, host address included', async () => {
+    const client = fakeClient({
+      current: session('anna'),
+      events: [
+        {
+          id: 'e1',
+          title: 'Dinner',
+          description: null,
+          location: null,
+          event_date: '2026-10-01',
+          start_time: '18:30:00',
+          end_time: null,
+          needs_host: true,
+          host_limit: 1,
+          allow_other_food: true,
+          cancelled: true,
+          food_slots: [{ id: 's1', label: 'Main', needed: 2, position: null }],
+          signups: [{ id: 'x', event_id: 'e1', kind: 'host', name: 'Ann', address: '12 Oak St', created_by: 'u' }],
+        },
+      ],
+    });
+    const data = createSupabaseData(client);
+    await data.init();
+    const [event] = await data.loadEvents();
+    assert.equal(event.startTime, '18:30');
+    assert.equal(event.endTime, '');
+    assert.equal(event.location, '');
+    assert.equal(event.cancelled, true);
+    assert.deepEqual(event.foodSlots, [{ id: 's1', label: 'Main', needed: 2, position: 0 }]);
+    assert.equal(event.signups[0].address, '12 Oak St');
   });
 });

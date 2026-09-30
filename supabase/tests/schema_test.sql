@@ -251,8 +251,8 @@ select id from public.food_slots where event_id = :'event_id'::uuid and label = 
 select id from public.food_slots where event_id = :'event_id'::uuid and label = 'Side dish' \gset side_
 
 select tests_become(:anna::uuid);
-insert into public.signups (event_id, slot_id, kind, name, item)
-values (:'event_id'::uuid, :'main_id'::uuid, 'food', 'Anna', 'Lasagna');
+insert into public.signups (event_id, slot_id, kind, name, item, contact)
+values (:'event_id'::uuid, :'main_id'::uuid, 'food', 'Anna', 'Lasagna', '555-0100');
 
 -- "Main dish" asked for one person and already has one. A second is still
 -- allowed: the number is a minimum, not a cap.
@@ -318,6 +318,68 @@ update public.signups set item = 'Two pans of lasagna' where id = :'annas_id'::u
 select tests_assert(
   (select item from public.signups where id = :'annas_id'::uuid) = 'Two pans of lasagna',
   'a participant can edit their own sign-up');
+
+-- What a sign-up is for was checked when it was added; editing it may change
+-- what the person typed, but not move it past those checks. Otherwise a food
+-- sign-up could become a second host, or point at another event's slot.
+select tests_expect_error(
+  format($$update public.signups set kind = 'host' where id = %L$$, :'annas_id'),
+  'permission denied',
+  'a food sign-up cannot be turned into a host sign-up');
+
+select tests_expect_error(
+  format($$update public.signups set event_id = %L where id = %L$$, :'event_id', :'annas_id'),
+  'permission denied',
+  'a sign-up cannot be moved to another event');
+
+select tests_expect_error(
+  format($$update public.signups set slot_id = %L where id = %L$$, :'side_id', :'annas_id'),
+  'permission denied',
+  'a sign-up cannot be moved to another food slot');
+
+select tests_expect_error(
+  format($$update public.signups set created_by = %L where id = %L$$, :bob, :'annas_id'),
+  'permission denied',
+  'a sign-up cannot be handed to someone else');
+
+update public.signups set contact = '555-0199', note = 'Running late' where id = :'annas_id'::uuid;
+select tests_assert(
+  (select note from public.signups where id = :'annas_id'::uuid) = 'Running late',
+  'a participant can still change their name, contact, dish and note');
+
+-- ---------------------------------------------------------------------------
+-- Contact details are not public
+-- ---------------------------------------------------------------------------
+
+select tests_become(null);
+select tests_expect_error(
+  $$select contact from public.signups$$,
+  'permission denied',
+  'a signed-out visitor cannot read contact details');
+
+select tests_become(:bob::uuid);
+select tests_expect_error(
+  $$select * from public.signups$$,
+  'permission denied',
+  'another participant cannot read contact details, even with select *');
+
+select tests_assert(
+  (select count(*) from public.signup_contacts()) = 0,
+  'another participant gets none of anyone else''s contact details');
+
+select tests_become(:anna::uuid);
+select tests_assert(
+  (select contact from public.signup_contacts() where signup_id = :'annas_id'::uuid) = '555-0199',
+  'a participant can see the contact on their own sign-up');
+
+select tests_become(:organizer::uuid);
+select tests_assert(
+  (select contact from public.signup_contacts() where signup_id = :'annas_id'::uuid) = '555-0199',
+  'an organizer can see everyone''s contact details');
+
+select tests_assert(
+  not has_function_privilege('anon', 'public.signup_contacts()', 'execute'),
+  'a signed-out visitor cannot call signup_contacts()');
 
 -- Sign-ups are stamped with their author, whatever the browser claims.
 select tests_become(:bob::uuid);
@@ -602,6 +664,44 @@ select tests_assert(
 select tests_assert(
   not has_function_privilege('anon', 'public.enforce_signup_rules()', 'execute'),
   'the sign-up trigger function is not on the REST API');
+
+-- ---------------------------------------------------------------------------
+-- Cancelling an event
+-- ---------------------------------------------------------------------------
+
+select tests_become(:anna::uuid);
+update public.events set cancelled = true where id = :'event_id'::uuid;
+select tests_assert(
+  not (select cancelled from public.events where id = :'event_id'::uuid),
+  'a participant cannot cancel an event');
+
+select tests_become(:organizer::uuid);
+update public.events set cancelled = true where id = :'event_id'::uuid;
+select tests_assert(
+  (select cancelled from public.events where id = :'event_id'::uuid),
+  'an organizer can cancel an event');
+
+select tests_become(:bob::uuid);
+select tests_expect_error(
+  format($$insert into public.signups (event_id, kind, name, item) values (%L, 'food', 'Bob', 'Rolls')$$, :'event_id'),
+  'has been cancelled',
+  'a cancelled event takes no new sign-ups');
+
+-- Saving the event's details does not quietly bring it back.
+select tests_become(:organizer::uuid);
+select public.save_event(
+  format('{"id":"%s","title":"Potluck","event_date":"2026-09-02","needs_host":true,
+           "host_limit":1,"allow_other_food":true}', :'event_id')::jsonb,
+  format('[{"id":"%s","label":"Main dish","needed":1}]', :'main_id')::jsonb
+);
+select tests_assert(
+  (select cancelled from public.events where id = :'event_id'::uuid),
+  'editing a cancelled event keeps it cancelled');
+
+update public.events set cancelled = false where id = :'event_id'::uuid;
+select tests_assert(
+  not (select cancelled from public.events where id = :'event_id'::uuid),
+  'an organizer can restore a cancelled event');
 
 -- Deleting an event takes its slots and sign-ups with it.
 delete from public.events where id = :'event_id'::uuid;

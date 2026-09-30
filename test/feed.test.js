@@ -87,6 +87,13 @@ describe('the calendar file', () => {
     assert.equal(field(build([row()]), 'DTSTAMP'), '20260930T120000Z');
   });
 
+  it('keeps a cancelled event, marked as cancelled', () => {
+    const ics = build([row({ cancelled: true })]);
+    assert.equal(field(ics, 'STATUS'), 'CANCELLED');
+    assert.equal(field(ics, 'SUMMARY'), 'Cancelled: Community Group');
+    assert.match(description(ics), /This event is cancelled\./);
+  });
+
   it('asks calendar apps to check hourly', () => {
     assert.ok(build([]).includes('REFRESH-INTERVAL;VALUE=DURATION:PT1H'));
   });

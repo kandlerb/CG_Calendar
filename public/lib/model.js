@@ -20,14 +20,23 @@ export function slotState(slot, signups) {
   };
 }
 
-/** Decorates one event with its sign-ups, and with who may change what. */
-export function shapeEvent(event, { userId = null, isOrganizer = false } = {}) {
+/**
+ * Decorates one event with its sign-ups, and with who may change what.
+ * `todayKey` ("2026-09-02") marks events before it as past; without it no
+ * event is treated as past.
+ */
+export function shapeEvent(event, { userId = null, isOrganizer = false, todayKey = null } = {}) {
+  const past = Boolean(todayKey) && event.date < todayKey;
+  const cancelled = Boolean(event.cancelled);
+  // A past or cancelled event takes no more sign-ups; it is only a record.
+  const closed = past || cancelled;
   const signups = (event.signups ?? []).map((signup) => {
     // "Mine" is about whose name is on it; "canManage" also lets an organizer
-    // tidy up after everyone. The page says "You" for the first and shows a
-    // Cancel button for the second.
+    // tidy up after everyone. The page says "You" for the first and shows
+    // Edit and Remove for the second. Once an event is closed its sign-ups
+    // are a record, so only an organizer may still change them.
     const mine = Boolean(userId) && signup.createdBy === userId;
-    return { ...signup, isMine: mine, canManage: isOrganizer || mine };
+    return { ...signup, isMine: mine, canManage: isOrganizer || (mine && !closed) };
   });
   const slots = [...(event.foodSlots ?? [])]
     .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
@@ -37,6 +46,9 @@ export function shapeEvent(event, { userId = null, isOrganizer = false } = {}) {
   const food = signups.filter((s) => s.kind === 'food');
   return {
     ...event,
+    past,
+    cancelled,
+    closed,
     signups,
     hosts,
     food,
@@ -71,6 +83,8 @@ export function foodStillNeeded(event) {
  * straight away whether there is anything left for them to do.
  */
 export function eventSummary(event) {
+  if (event.cancelled) return { done: true, closed: true, text: 'This event is cancelled.' };
+  if (event.past) return { done: true, closed: true, text: 'This event has passed.' };
   const needs = [];
   if (event.needsHost && event.hostSpotsLeft > 0) {
     needs.push(event.hostSpotsLeft === 1 ? 'a host' : `${event.hostSpotsLeft} more hosts`);
@@ -85,6 +99,12 @@ export function eventSummary(event) {
 /** The short status labels shown on a chip or card. */
 export function eventBadges(event) {
   const badges = [];
+  if (event.closed) {
+    // Nothing is still needed from an event that is over or called off.
+    badges.push(event.cancelled ? { text: 'Cancelled', warn: true } : { text: 'Past event', warn: false });
+    if (event.mine?.length) badges.push({ text: 'You signed up', warn: false, mine: true });
+    return badges;
+  }
   // An event whose host is arranged by the organizer has no host badge; the
   // location on the card says where it is.
   if (event.needsHost && event.hostSpotsLeft > 0) {
@@ -103,10 +123,6 @@ export function eventBadges(event) {
     badges.push({ text: 'Food covered', warn: false });
   }
 
-  if (event.food.length) {
-    const people = event.food.length === 1 ? '1 person' : `${event.food.length} people`;
-    badges.push({ text: `${people} bringing food`, warn: false });
-  }
   if (event.mine?.length) {
     badges.push({ text: 'You signed up', warn: false, mine: true });
   }
@@ -126,7 +142,15 @@ export function upcoming(events, todayKey) {
   return events.filter((event) => event.date >= todayKey);
 }
 
-/** The soonest event on or after `todayKey`, or null. Events arrive sorted. */
+/** Events before `todayKey`, most recent first. */
+export function past(events, todayKey) {
+  return events.filter((event) => event.date < todayKey).reverse();
+}
+
+/**
+ * The soonest event on or after `todayKey` that is still on, or null. Events
+ * arrive sorted.
+ */
 export function nextEvent(events, todayKey) {
-  return upcoming(events, todayKey)[0] ?? null;
+  return upcoming(events, todayKey).find((event) => !event.cancelled) ?? null;
 }

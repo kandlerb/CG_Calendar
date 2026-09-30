@@ -20,6 +20,12 @@ export function addMonths(d, delta) {
   return new Date(d.getFullYear(), d.getMonth() + delta, 1);
 }
 
+/** The day `days` after the "2026-10-03" key, as a key. */
+export function addDays(dateKey, days) {
+  const d = parseISODate(dateKey);
+  return isoDate(new Date(d.getFullYear(), d.getMonth(), d.getDate() + days));
+}
+
 /** "18:30:00" and "18:30" both become "18:30"; anything empty becomes "". */
 export function normalizeTime(value) {
   if (!value) return '';

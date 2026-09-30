@@ -9,7 +9,11 @@
 
 import { normalizeTime } from './dates.js';
 
-function toEvent(row) {
+// Every column but "contact", which only organizers and the person who signed
+// up may read. Asking for it (or for *) is refused outright by the database.
+const SIGNUP_COLUMNS = 'id, event_id, slot_id, kind, name, item, note, address, created_by, created_at';
+
+function toEvent(row, contacts = new Map()) {
   return {
     id: row.id,
     title: row.title,
@@ -21,6 +25,8 @@ function toEvent(row) {
     needsHost: row.needs_host,
     hostLimit: row.host_limit,
     allowOtherFood: row.allow_other_food,
+    // Missing on a project whose schema predates cancelling.
+    cancelled: Boolean(row.cancelled),
     foodSlots: (row.food_slots ?? []).map((slot) => ({
       id: slot.id,
       label: slot.label,
@@ -33,7 +39,7 @@ function toEvent(row) {
       slotId: signup.slot_id,
       kind: signup.kind,
       name: signup.name,
-      contact: signup.contact ?? '',
+      contact: contacts.get(signup.id) ?? '',
       item: signup.item ?? '',
       note: signup.note ?? '',
       address: signup.address ?? '',
@@ -77,7 +83,11 @@ function unwrap({ data, error }) {
   return data;
 }
 
-/** What an auth error means for the person looking at the form. */
+/**
+ * What an auth error means for the person looking at the form. Saying "wrong
+ * password" for every failure sends people to retype a password that was
+ * right all along.
+ */
 function describeAuth(error, fallback) {
   const code = error?.code ?? '';
   const message = error?.message ?? '';
@@ -96,7 +106,13 @@ function describeAuth(error, fallback) {
   if (code === 'over_email_send_rate_limit' || /rate limit/i.test(message)) {
     return 'Too many emails have been sent just now. Wait a few minutes and try again.';
   }
+  if (error?.status === 429 || /rate.?limit/i.test(code)) {
+    return 'Too many attempts. Wait a minute and try again.';
+  }
   if (/invalid email|unable to validate email/i.test(message)) return 'That email address does not look right.';
+  if (!error?.status || /fetch|network/i.test(message)) {
+    return 'Could not reach the sign-in service. Check your connection and try again.';
+  }
   return message || fallback;
 }
 
@@ -144,7 +160,10 @@ export function createSupabaseData(client, { siteUrl = '', feedBase = '', initia
       viewer = null;
       return viewer;
     }
-    const membership = error ? null : data;
+    // A lookup that failed is not an answer. Reading it as "not a member"
+    // would send a real member to the invite-code screen.
+    if (error) throw new Error(`Could not check who you are signed in as: ${describe(error)}`);
+    const membership = data;
     const user = session.user;
     viewer = {
       id: user.id,
@@ -156,6 +175,18 @@ export function createSupabaseData(client, { siteUrl = '', feedBase = '', initia
       feedToken: membership?.feed_token ?? null,
     };
     return viewer;
+  }
+
+  /**
+   * The contact details this viewer may see: their own, or everyone's for an
+   * organizer. They are extra detail, so a failure here leaves them out
+   * rather than stopping the calendar from loading.
+   */
+  async function loadContacts() {
+    if (!viewer) return new Map();
+    const { data, error } = await client.rpc('signup_contacts');
+    if (error) return new Map();
+    return new Map((data ?? []).map((row) => [row.signup_id, row.contact]));
   }
 
   /**
@@ -315,14 +346,20 @@ export function createSupabaseData(client, { siteUrl = '', feedBase = '', initia
 
     // --- the calendar ------------------------------------------------------
 
-    async loadEvents() {
-      const rows = unwrap(
-        await client
-          .from('events')
-          .select('*, food_slots(*), signups(*)')
-          .order('event_date', { ascending: true }),
-      );
-      return rows.map(toEvent);
+    /**
+     * Events on or after `since` (an ISO date), or every event when it is
+     * empty. Sign-ups come back in the order people made them, so the names
+     * under a slot do not shuffle between reloads.
+     */
+    async loadEvents({ since = null } = {}) {
+      let query = client
+        .from('events')
+        .select(`*, food_slots(*), signups(${SIGNUP_COLUMNS})`)
+        .order('event_date', { ascending: true })
+        .order('created_at', { referencedTable: 'signups', ascending: true });
+      if (since) query = query.gte('event_date', since);
+      const [result, contacts] = await Promise.all([query, loadContacts()]);
+      return unwrap(result).map((row) => toEvent(row, contacts));
     },
 
     async saveEvent(event, slots) {
@@ -347,6 +384,14 @@ export function createSupabaseData(client, { siteUrl = '', feedBase = '', initia
           })),
         }),
       );
+    },
+
+    /** Calls an event off, or back on. Organizers only, by the events policy. */
+    async setCancelled(id, cancelled) {
+      const rows = await write(() =>
+        client.from('events').update({ cancelled }).eq('id', id).select('id'),
+      );
+      if (!rows?.length) throw new Error('Could not change that event.');
     },
 
     async deleteEvent(id) {

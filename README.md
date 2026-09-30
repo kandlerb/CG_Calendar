@@ -35,7 +35,8 @@ It also enforces the part that matters. The rules about **who may see the
 calendar** and **who may create events** live in the database
 (`supabase/schema.sql`), not in the browser. Someone poking at the page with
 developer tools still can't read an event without joining, add an event, take
-a host spot that is gone, or attach a sign-up to another event's food slot.
+a host spot that is gone, attach a sign-up to another event's food slot, or
+read the phone numbers and emails people left for the organizers.
 
 Supabase also runs the one piece of server code: the **calendar-feed** Edge
 Function, which serves each member's subscription.
@@ -170,10 +171,12 @@ Get Pages site failed. Error: Not Found
 Create Pages site failed. Error: Resource not accessible by integration
 ```
 
-Once it's set, push to `main` (or re-run the deploy workflow). It publishes
-`public/` and prints the URL in the Actions log — usually
+Once it's set, push to `main`. The Tests workflow runs every test and, only
+if they all pass, its last job publishes `public/` and prints the URL in the
+Actions log — usually
 `https://kandlerb.github.io/CG_Calendar/`. That's the link you send your
-group.
+group. (**Actions → Deploy to GitHub Pages → Run workflow** redeploys by hand,
+without waiting for tests.)
 
 ## Finishing the switch to accounts
 
@@ -197,12 +200,14 @@ them were anonymous, so they can't edit them any more; an organizer still can.
 
 | | Signed out | Member | Organizer |
 | --- | --- | --- | --- |
-| See the calendar | no — sign-in screen only | yes | yes |
+| See the calendar and who signed up | no — sign-in screen only | yes | yes |
 | Sign up to host or bring food | no | yes | yes |
-| Edit or cancel **their own** sign-up | — | yes, from any device | yes |
-| Subscribe from their phone's calendar | — | yes | yes |
-| Remove anyone's sign-up | no | no | yes |
-| Create, edit, or delete events | no | no | yes |
+| See the phone number or email someone left | — | only their own | yes |
+| Edit or remove **their own** sign-up, until the event is over | — | yes, from any device | yes |
+| Subscribe from their phone's calendar, or add one event | — | yes | yes |
+| Create, edit, duplicate, cancel, or delete events | no | no | yes |
+| Tap a phone number to text it, or an email to write | no | no | yes |
+| Edit or remove anyone's sign-up | no | no | yes |
 | See and change the invite code, remove members | no | no | yes |
 
 People join by creating an account (name, email, password) with the invite
@@ -263,6 +268,24 @@ Calendar checks on its own schedule, which can take up to a day.
    anyone who wants to add another side dish still can. Each person's own
    sign-up records what they are bringing, so the list under a slot reads as
    "Anna — Lasagna, Bob — Chili" rather than a bare count.
+5. Anyone can **Edit** or **Remove** their own sign-up through the day of the
+   event. After that the event is read-only, except to organizers.
+
+If an organizer removes a food slot that people signed up for, the editor
+names them and asks first; their sign-ups are kept, listed under "Other food".
+
+### For organizers
+
+- **Repeat weekly.** A new event can also be added for up to the next 12
+  weeks, with the same time, host setting and food slots. A title ending in a
+  number counts up: "Week 3" is followed by "Week 4".
+- **Duplicate** in an event opens a copy a week later, ready to adjust. Sign-ups
+  are not copied.
+- **Cancel event** keeps the event on the calendar, crossed out and marked
+  cancelled, and stops new sign-ups. Nobody is notified, so tell the group.
+  **Restore event** undoes it. **Delete event** removes it for good.
+- A phone number someone left is a link that opens a text message to them; an
+  email opens a new email.
 
 ### What a first-time visitor sees
 
@@ -277,6 +300,21 @@ the event, open it, sign up, subscribe. Closing it is remembered, and the
   needed: a host and 2 food slots.*
 - Your own sign-ups are marked **You**, on any device you sign in on.
 - A month with no events says so and links to the month of the next event.
+- In **Month**, a key under the grid explains the chip colours; a lavender
+  chip still needs a host.
+- The moon/sun button left of the title switches between light and dark. The
+  page follows the device's setting until someone picks one, and the choice
+  is remembered in that browser.
+- **Month** starts with a **Next up** line: the next event that is still on,
+  what it needs, and a button to open it.
+- **Add to my calendar** in an event downloads it as a calendar file, which a
+  phone or computer offers to add. It has the title, time, details and a link
+  back, but never a host's address.
+- **Upcoming** has **Only my sign-ups** once you have signed up for something,
+  and ends with **Show past events**, for checking who brought what.
+- The phone number or email on a sign-up is optional and shown only to
+  organizers (and to the person who left it). The database enforces that, not
+  just the page.
 
 ## Day-to-day
 
@@ -295,6 +333,25 @@ quietly sends the public key instead of the member's token. The page checks
 before every write, refreshes the session and retries once; if it still fails,
 it shows the sign-in screen and reopens the event after.
 
+**Old anonymous users** from before the switch to accounts are still listed
+under **Authentication → Users**, one per browser that opened the calendar
+back then. They can't see anything now, so they are harmless. If you ever
+clear them out, know that deleting a user **also deletes every sign-up they
+made** (`signups.created_by … on delete cascade`). Only remove anonymous users
+whose events are over, for example:
+
+```sql
+delete from auth.users u
+ where u.is_anonymous
+   and not exists (
+     select 1 from public.signups s join public.events e on e.id = s.event_id
+      where s.created_by = u.id and e.event_date >= current_date);
+```
+
+**Updating the database rules**: re-run the whole of `supabase/schema.sql` in
+the SQL editor; it is safe to run again. If a change to the rules comes with a
+change to the page, let the new page deploy first, then run the SQL.
+
 **Backups**: Supabase's dashboard has **Database → Backups**. For a copy you
 hold yourself, the table editor exports any table to CSV.
 
@@ -312,8 +369,9 @@ A member's calendar feed link works for anyone who has it, until it is reset.
 ## Development
 
 ```bash
-npm test             # unit tests for the date and model logic (no dependencies)
+npm test             # unit tests for the date, model, form and data logic (no dependencies)
 npm run test:schema  # applies schema.sql to a scratch database and tests the rules
+npm run test:e2e     # drives demo.html in Chromium (npm install first)
 npm run serve        # serves public/ at http://localhost:8000
 node scripts/verify-supabase.mjs <url> <anon-key> [email] [password]   # checks a live project
 ```
@@ -326,6 +384,11 @@ throttled, that a removed member loses access and their feed, that a member
 can't create an event, edit someone else's sign-up or post as someone else,
 and that the feed carries no contact details. CI runs both on every push.
 
+`npm run test:e2e` needs `npm install` and a Playwright Chromium
+(`npx playwright install chromium`). It clicks through `demo.html` the way a
+visitor and an organizer would: signing up, editing events, following links,
+and checking that nothing half-typed is lost.
+
 ## Layout
 
 ```
@@ -334,8 +397,12 @@ public/                the website — this is what GitHub Pages serves
   demo.html            the same app on in-memory data, no backend
   config.js            your Supabase URL and anon key
   app.js               all the page's behaviour
+  theme.js             the light / dark toggle, applied before the page draws
   lib/dates.js         calendar maths
   lib/model.js         turning rows into what's on screen
+  lib/forms.js         checking what was typed before it is saved; weekly copies
+  lib/ics.js           the "Add to my calendar" file
+  lib/contact.js       turning a phone number or email into a link
   lib/supabase-data.js everything that talks to Supabase
   lib/demo-data.js     the stand-in used by demo.html
   lib/feed.js          builds the calendar subscription (.ics)
@@ -343,6 +410,7 @@ supabase/schema.sql    tables, row level security, sign-up rules, members
 supabase/functions/calendar-feed/  the Edge Function that serves each feed
 supabase/tests/        those rules, tested against a real PostgreSQL
 test/                  unit tests for the browser modules
+e2e/                   browser tests, run against demo.html
 scripts/test-schema.sh runs the schema tests
 scripts/verify-supabase.mjs checks a live Supabase project is set up right
 ```
