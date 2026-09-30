@@ -131,26 +131,45 @@ alter table public.signups    enable row level security;
 revoke all on public.organizers, public.events, public.food_slots, public.signups
   from anon, authenticated;
 
-grant select on public.organizers, public.events, public.food_slots, public.signups
+grant select on public.organizers, public.events, public.food_slots
   to anon, authenticated;
-grant insert, update, delete on public.events, public.food_slots, public.signups
+grant insert, update, delete on public.events, public.food_slots
   to authenticated;
+
+-- Sign-ups are granted column by column.
+--
+-- Reading: everything but "contact". A phone number or email is for the
+-- organizers, not for everyone who has the link; signup_contacts() below hands
+-- it out to the people allowed to see it.
+--
+-- Changing: only what a person typed. The sign-up rules run when a sign-up is
+-- added, so if "kind", "event_id" or "slot_id" could be changed afterwards, a
+-- food sign-up could turn itself into a second host, move to an event that
+-- needs no host, or point at another event's food slot. Nothing in the app
+-- moves a sign-up; cancelling and signing up again goes back through the rules.
+grant select (id, event_id, slot_id, kind, name, item, note, created_by, created_at)
+  on public.signups to anon, authenticated;
+grant insert, delete on public.signups to authenticated;
+grant update (name, contact, item, note) on public.signups to authenticated;
 
 -- Your display name is yours to set. The grant names one column, so even with
 -- the policy below nobody can repoint their row at a different user_id.
 grant update (name) on public.organizers to authenticated;
 
+-- auth.uid() and is_organizer() are wrapped in (select …) throughout, so
+-- Postgres works each out once per statement rather than once per row.
+
 -- Organizers: you may see your own row, and nothing else. Membership is
 -- managed from the dashboard, not from the app; your display name is not.
 drop policy if exists organizers_read_self on public.organizers;
 create policy organizers_read_self on public.organizers
-  for select using (user_id = auth.uid());
+  for select using (user_id = (select auth.uid()));
 
 -- Being an organizer is granted from the dashboard, but what the header calls
 -- you is only a label — so you may change your own, and nobody else's.
 drop policy if exists organizers_rename_self on public.organizers;
 create policy organizers_rename_self on public.organizers
-  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+  for update using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 
 -- Events and their food slots: anyone with the link may read them; only
 -- organizers may write them.
@@ -160,7 +179,7 @@ create policy events_read_all on public.events
 
 drop policy if exists events_write_organizers on public.events;
 create policy events_write_organizers on public.events
-  for all using (public.is_organizer()) with check (public.is_organizer());
+  for all using ((select public.is_organizer())) with check ((select public.is_organizer()));
 
 drop policy if exists food_slots_read_all on public.food_slots;
 create policy food_slots_read_all on public.food_slots
@@ -168,7 +187,7 @@ create policy food_slots_read_all on public.food_slots
 
 drop policy if exists food_slots_write_organizers on public.food_slots;
 create policy food_slots_write_organizers on public.food_slots
-  for all using (public.is_organizer()) with check (public.is_organizer());
+  for all using ((select public.is_organizer())) with check ((select public.is_organizer()));
 
 -- Sign-ups: anyone may read them and add their own. You may change or remove
 -- only the ones you created — unless you are an organizer, who may tidy up
@@ -179,16 +198,38 @@ create policy signups_read_all on public.signups
 
 drop policy if exists signups_insert_own on public.signups;
 create policy signups_insert_own on public.signups
-  for insert with check (created_by = auth.uid());
+  for insert with check (created_by = (select auth.uid()));
 
 drop policy if exists signups_update_own on public.signups;
 create policy signups_update_own on public.signups
-  for update using (created_by = auth.uid() or public.is_organizer())
-  with check (created_by = auth.uid() or public.is_organizer());
+  for update using (created_by = (select auth.uid()) or (select public.is_organizer()))
+  with check (created_by = (select auth.uid()) or (select public.is_organizer()));
 
 drop policy if exists signups_delete_own on public.signups;
 create policy signups_delete_own on public.signups
-  for delete using (created_by = auth.uid() or public.is_organizer());
+  for delete using (created_by = (select auth.uid()) or (select public.is_organizer()));
+
+-- ---------------------------------------------------------------------------
+-- Contact details
+-- ---------------------------------------------------------------------------
+
+-- The "contact" column cannot be read directly (see the grants above). This
+-- returns it for your own sign-ups, and for everyone's if you are an organizer.
+create or replace function public.signup_contacts()
+returns table (signup_id uuid, contact text)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select s.id, s.contact
+    from public.signups s
+   where s.contact <> ''
+     and (s.created_by = auth.uid() or public.is_organizer());
+$$;
+
+revoke all on function public.signup_contacts() from public, anon, authenticated;
+grant execute on function public.signup_contacts() to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Sign-up rules the database enforces

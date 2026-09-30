@@ -11,6 +11,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..800;1,300..800&family=Fraunces:ital,opsz,wght@0,9..144,300..800;1,9..144,300..800&family=JetBrains+Mono:wght@400..700&display=swap" />
     <link rel="stylesheet" href="./styles.css" />
+    <!-- The Supabase library comes from here; start the connection early. -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to the calendar</a>
@@ -77,6 +79,10 @@
       if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
         setupNotice();
       } else {
+        // Open the connection to the project while the library downloads.
+        const preconnect = Object.assign(document.createElement('link'), { rel: 'preconnect', href: SUPABASE_URL });
+        preconnect.crossOrigin = '';
+        document.head.append(preconnect);
         try {
           // The Supabase library comes from a CDN, so this can fail on a
           // blocked network. Without the catch the page would stay blank.

@@ -494,7 +494,6 @@ main {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: var(--space-5);
-  cursor: pointer;
   box-shadow: var(--shadow-sm);
   position: relative;
   transition:
@@ -502,8 +501,20 @@ main {
     transform var(--ag-duration-fast) var(--ag-ease-out);
 }
 .agenda-card:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
-.agenda-card:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.agenda-card:has(.agenda-open:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
 .agenda-card h3 { font-size: 18px; line-height: 24px; }
+/* The title is the card's only button; this stretches it over the whole card. */
+.agenda-open {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.agenda-open::after { content: ''; position: absolute; inset: 0; border-radius: var(--radius-md); }
+.agenda-open:focus-visible { outline: none; }
 .agenda-card .when { color: var(--muted); font-size: 13px; line-height: 18px; margin: 0 0 var(--space-1); }
 .agenda-card .where { color: var(--muted); font-size: 13px; line-height: 18px; margin: var(--space-1) 0 0; }
 .agenda-cue { display: block; margin-top: var(--space-3); font-size: 14px; line-height: 18px; color: var(--accent); font-weight: 600; }

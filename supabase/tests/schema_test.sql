@@ -150,8 +150,8 @@ select id from public.food_slots where event_id = :'event_id'::uuid and label = 
 select id from public.food_slots where event_id = :'event_id'::uuid and label = 'Side dish' \gset side_
 
 select tests_become(:anna::uuid);
-insert into public.signups (event_id, slot_id, kind, name, item)
-values (:'event_id'::uuid, :'main_id'::uuid, 'food', 'Anna', 'Lasagna');
+insert into public.signups (event_id, slot_id, kind, name, item, contact)
+values (:'event_id'::uuid, :'main_id'::uuid, 'food', 'Anna', 'Lasagna', '555-0100');
 
 -- "Main dish" asked for one person and already has one. A second is still
 -- allowed: the number is a minimum, not a cap.
@@ -217,6 +217,68 @@ update public.signups set item = 'Two pans of lasagna' where id = :'annas_id'::u
 select tests_assert(
   (select item from public.signups where id = :'annas_id'::uuid) = 'Two pans of lasagna',
   'a participant can edit their own sign-up');
+
+-- What a sign-up is for was checked when it was added; editing it may change
+-- what the person typed, but not move it past those checks. Otherwise a food
+-- sign-up could become a second host, or point at another event's slot.
+select tests_expect_error(
+  format($$update public.signups set kind = 'host' where id = %L$$, :'annas_id'),
+  'permission denied',
+  'a food sign-up cannot be turned into a host sign-up');
+
+select tests_expect_error(
+  format($$update public.signups set event_id = %L where id = %L$$, :'event_id', :'annas_id'),
+  'permission denied',
+  'a sign-up cannot be moved to another event');
+
+select tests_expect_error(
+  format($$update public.signups set slot_id = %L where id = %L$$, :'side_id', :'annas_id'),
+  'permission denied',
+  'a sign-up cannot be moved to another food slot');
+
+select tests_expect_error(
+  format($$update public.signups set created_by = %L where id = %L$$, :bob, :'annas_id'),
+  'permission denied',
+  'a sign-up cannot be handed to someone else');
+
+update public.signups set contact = '555-0199', note = 'Running late' where id = :'annas_id'::uuid;
+select tests_assert(
+  (select note from public.signups where id = :'annas_id'::uuid) = 'Running late',
+  'a participant can still change their name, contact, dish and note');
+
+-- ---------------------------------------------------------------------------
+-- Contact details are not public
+-- ---------------------------------------------------------------------------
+
+select tests_become(null);
+select tests_expect_error(
+  $$select contact from public.signups$$,
+  'permission denied',
+  'a signed-out visitor cannot read contact details');
+
+select tests_become(:bob::uuid);
+select tests_expect_error(
+  $$select * from public.signups$$,
+  'permission denied',
+  'another participant cannot read contact details, even with select *');
+
+select tests_assert(
+  (select count(*) from public.signup_contacts()) = 0,
+  'another participant gets none of anyone else''s contact details');
+
+select tests_become(:anna::uuid);
+select tests_assert(
+  (select contact from public.signup_contacts() where signup_id = :'annas_id'::uuid) = '555-0199',
+  'a participant can see the contact on their own sign-up');
+
+select tests_become(:organizer::uuid);
+select tests_assert(
+  (select contact from public.signup_contacts() where signup_id = :'annas_id'::uuid) = '555-0199',
+  'an organizer can see everyone''s contact details');
+
+select tests_assert(
+  not has_function_privilege('anon', 'public.signup_contacts()', 'execute'),
+  'a signed-out visitor cannot call signup_contacts()');
 
 -- Sign-ups are stamped with their author, whatever the browser claims.
 select tests_become(:bob::uuid);
