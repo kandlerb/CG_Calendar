@@ -274,7 +274,9 @@ main {
 .period-nav { display: flex; align-items: center; gap: var(--space-2); }
 .period-nav h2 { font-size: 28px; line-height: 36px; margin-left: var(--space-3); white-space: nowrap; }
 .stepper { display: inline-flex; gap: var(--space-2); }
-.toolbar-right { display: flex; align-items: center; gap: var(--space-3); }
+/* Pinned right, so the view switch stays put when Upcoming hides the month
+   arrows and it is left as the toolbar's only item. */
+.toolbar-right { display: flex; align-items: center; gap: var(--space-3); margin-left: auto; }
 
 /* One segmented control, not two loose buttons. */
 .view-toggle {
@@ -801,7 +803,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   .topbar, .toolbar { height: auto; flex-wrap: wrap; row-gap: var(--space-2); padding: var(--space-3) var(--space-4); }
   .topbar h1 { font-size: 18px; line-height: 24px; }
   .topbar-divider { display: none; }
-  .toolbar-right { margin-left: auto; }
   .period-nav h2 { font-size: 22px; line-height: 30px; }
 }
 

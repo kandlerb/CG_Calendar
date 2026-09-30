@@ -267,3 +267,16 @@ test('the month grid explains its colours', async ({ page }) => {
   await page.getByRole('button', { name: 'Month', exact: true }).click();
   await expect(page.locator('.legend')).toContainText('Needs a host');
 });
+
+test('the Month / Upcoming switch stays in place when the view changes', async ({ page }) => {
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 850 });
+    await page.goto('/demo.html');
+    const toggle = page.locator('.view-toggle');
+    await page.getByRole('button', { name: 'Month', exact: true }).click();
+    const inMonth = await toggle.boundingBox();
+    await page.getByRole('button', { name: 'Upcoming' }).click();
+    const inList = await toggle.boundingBox();
+    expect(Math.round(inList.x), `at ${width}px wide`).toBe(Math.round(inMonth.x));
+  }
+});
