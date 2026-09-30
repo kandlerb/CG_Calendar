@@ -189,6 +189,13 @@ export function createDemoData() {
       return target.id;
     },
 
+    async setCancelled(id, cancelled) {
+      if (!viewer.isOrganizer) throw new Error('You are not allowed to do that.');
+      const event = find(id);
+      if (!event) throw new Error('That event no longer exists.');
+      event.cancelled = cancelled;
+    },
+
     async deleteEvent(id) {
       state.events = state.events.filter((e) => e.id !== id);
     },
@@ -196,6 +203,7 @@ export function createDemoData() {
     async addSignup(signup) {
       const event = find(signup.eventId);
       if (!event) throw new Error('That event no longer exists.');
+      if (event.cancelled) throw new Error('This event has been cancelled.');
 
       if (signup.kind === 'host') {
         if (!event.needsHost) throw new Error('This event does not need a host.');

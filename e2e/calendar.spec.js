@@ -280,3 +280,121 @@ test('the Month / Upcoming switch stays in place when the view changes', async (
     expect(Math.round(inList.x), `at ${width}px wide`).toBe(Math.round(inMonth.x));
   }
 });
+
+test('an event can be added to a calendar as an .ics file', async ({ page }) => {
+  await openEvent(page, DINNER);
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    dialog(page).getByRole('button', { name: 'Add to my calendar' }).click(),
+  ]);
+  expect(download.suggestedFilename()).toBe('community-group-week-1.ics');
+  const body = await (await download.createReadStream()).toArray();
+  const ics = Buffer.concat(body).toString('utf8');
+  expect(ics).toContain('SUMMARY:Community Group — Week 1');
+  expect(ics).toContain('DTSTART:');
+  expect(ics).toContain(`#event=${DINNER}`);
+});
+
+test('the next event is one tap away from the top of the page', async ({ page }) => {
+  await page.goto('/demo.html');
+  await page.getByRole('button', { name: 'Month', exact: true }).click();
+  const next = page.locator('#next-up');
+  await expect(next).toContainText('Community Group — Week 1');
+  await expect(next).toContainText('Still needed: a host');
+  await next.getByRole('button', { name: /Open/ }).click();
+  await expect(dialog(page).locator('#modal-title')).toHaveText('Community Group — Week 1');
+
+  // Upcoming already starts with it.
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Upcoming' }).click();
+  await expect(next).toBeHidden();
+});
+
+test('an organizer can duplicate an event to the next week', async ({ page }) => {
+  await signInAsOrganizer(page);
+  await openEvent(page, DINNER);
+  await dialog(page).getByRole('button', { name: 'Duplicate' }).click();
+  await expect(dialog(page).locator('#modal-title')).toHaveText('Duplicate event');
+  await expect(page.getByLabel('Title')).toHaveValue('Community Group — Week 2');
+  await expect(dialog(page).locator('[data-slot-row]')).toHaveCount(3);
+  await page.getByRole('button', { name: 'Create event' }).click();
+  await expect(dialog(page).locator('#modal-title')).toHaveText('Community Group — Week 2');
+  // The copy starts with nobody signed up.
+  await expect(dialog(page)).not.toContainText('Marisol');
+});
+
+test('a new event can repeat weekly', async ({ page }) => {
+  await signInAsOrganizer(page);
+  await page.getByRole('button', { name: '+ New event' }).click();
+  await page.getByLabel('Title').fill('Book Club — Week 1');
+  await page.getByLabel('Date').fill('2031-01-07');
+  await page.getByLabel('Repeat weekly').fill('2');
+  await page.getByRole('button', { name: 'Create event' }).click();
+  await expect(page.locator('#toast')).toHaveText('Created 3 events, one a week.');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Upcoming' }).click();
+  for (const week of ['Week 1', 'Week 2', 'Week 3']) {
+    await expect(page.locator('.agenda-card').filter({ hasText: `Book Club — ${week}` })).toHaveCount(1);
+  }
+});
+
+test('a cancelled event stays on the calendar but takes no sign-ups', async ({ page }) => {
+  await signInAsOrganizer(page);
+  await openEvent(page, DINNER);
+  page.once('dialog', (d) => d.accept());
+  await dialog(page).getByRole('button', { name: 'Cancel event' }).click();
+  await expect(dialog(page).locator('.summary')).toHaveText('This event is cancelled.');
+  await expect(dialog(page).locator('[data-open-form]')).toHaveCount(0);
+  await expect(dialog(page).getByRole('button', { name: 'Add to my calendar' })).toHaveCount(0);
+  // The next event skips it.
+  await expect(page.locator('#next-up')).toContainText('Fall Cookout');
+
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Upcoming' }).click();
+  const card = page.locator('.agenda-card').filter({ hasText: 'Week 1' });
+  await expect(card).toContainText('Cancelled');
+
+  await openEvent(page, DINNER);
+  await dialog(page).getByRole('button', { name: 'Restore event' }).click();
+  await expect(dialog(page).getByRole('button', { name: 'Sign up to host' })).toBeVisible();
+});
+
+test('Upcoming can show only my sign-ups', async ({ page }) => {
+  await page.goto('/demo.html');
+  await page.getByRole('button', { name: 'Upcoming' }).click();
+  await expect(page.getByRole('button', { name: 'Only my sign-ups' })).toHaveCount(0);
+
+  await openEvent(page, COOKOUT);
+  await slotGroup(page, 'Drinks').getByRole('button', { name: 'Sign up' }).click();
+  await page.getByLabel('Your name').fill('Jordan');
+  await page.getByLabel('What you will bring').fill('Lemonade');
+  await page.getByRole('button', { name: 'Add sign-up' }).click();
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: 'Only my sign-ups' }).click();
+  await expect(page.locator('.agenda-card')).toHaveCount(1);
+  await expect(page.locator('.agenda-card')).toContainText('Fall Cookout');
+  await page.getByRole('button', { name: 'Only my sign-ups' }).click();
+  await expect(page.locator('.agenda-card').filter({ hasText: 'Week 1' })).toHaveCount(1);
+});
+
+test('an organizer can tap a contact to text or email it', async ({ page }) => {
+  await openEvent(page, COOKOUT);
+  await slotGroup(page, 'Drinks').getByRole('button', { name: 'Sign up' }).click();
+  await page.getByLabel('Your name').fill('Jordan');
+  await page.getByLabel('Phone or email').fill('(706) 555-0142');
+  await page.getByLabel('What you will bring').fill('Lemonade');
+  await page.getByRole('button', { name: 'Add sign-up' }).click();
+  // A visitor sees their own number as plain text.
+  await expect(slotGroup(page, 'Drinks').locator('a.contact-link')).toHaveCount(0);
+
+  await page.keyboard.press('Escape');
+  await signInAsOrganizer(page);
+  await openEvent(page, COOKOUT);
+  await expect(slotGroup(page, 'Drinks').locator('a.contact-link')).toHaveAttribute('href', 'sms:7065550142');
+  await openEvent(page, DINNER);
+  await expect(slotGroup(page, 'Side dish').locator('a.contact-link')).toHaveAttribute(
+    'href',
+    'mailto:marisol@example.com',
+  );
+});

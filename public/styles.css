@@ -448,6 +448,9 @@ main {
 .chip .chip-title { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .chip.mine { box-shadow: inset 0 0 0 1px var(--accent); }
 .chip.past { opacity: 0.6; }
+.chip.cancelled { opacity: 0.6; }
+.chip.cancelled .chip-title { text-decoration: line-through; }
+.chip.cancelled .dot { background: var(--muted); }
 .chip.past .dot { background: var(--muted); }
 
 /* The key to the chips, which a touch screen has no tooltip for. */
@@ -551,7 +554,9 @@ main {
 .agenda-open:focus-visible { outline: none; }
 .agenda-card .when { color: var(--muted); font-size: 13px; line-height: 18px; margin: 0 0 var(--space-1); }
 .agenda-card .where { color: var(--muted); font-size: 13px; line-height: 18px; margin: var(--space-1) 0 0; }
-.agenda-card.past { box-shadow: none; opacity: 0.8; }
+.agenda-card.past, .agenda-card.cancelled { box-shadow: none; opacity: 0.8; }
+.agenda-card.cancelled h3 { text-decoration: line-through; }
+.agenda-filter { display: flex; justify-content: flex-end; }
 .past-toggle { align-self: center; margin-top: var(--space-2); }
 .agenda-heading { font: 600 14px/20px var(--font-sans); color: var(--muted); margin-top: var(--space-2); }
 .agenda-cue { display: block; margin-top: var(--space-3); font-size: 14px; line-height: 18px; color: var(--accent); font-weight: 600; }
@@ -636,7 +641,7 @@ main {
   color: var(--ink);
 }
 .summary.done { background: var(--success-soft); color: var(--ink); }
-.summary.past { background: var(--surface-2); color: var(--muted); }
+.summary.closed { background: var(--surface-2); color: var(--muted); }
 .yours {
   margin: var(--space-3) 0 0;
   font-size: 13px;
@@ -650,6 +655,50 @@ main {
 .section-note.warn { color: var(--warning); font-weight: 600; }
 .section > p.hint { color: var(--muted); font-size: 13px; line-height: 18px; margin: 0 0 var(--space-3); }
 .footer-actions .form-actions { width: 100%; }
+/* Organizer controls sit on their own row, apart from what everyone sees. */
+.organizer-actions {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--border);
+}
+
+/* A phone number or email an organizer can tap. */
+.contact-link { color: inherit; text-decoration: none; display: inline-flex; gap: var(--space-2); align-items: center; }
+.contact-link:hover .contact-action, .contact-link:focus-visible .contact-action { text-decoration: underline; }
+.contact-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-xs); }
+.contact-action { color: var(--accent); font-weight: 600; }
+
+/* "Also add it for the next [3] weeks". */
+.inline-field { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: 15px; }
+.inline-field input { width: 72px; }
+
+/* The next gathering, above either view. */
+.next-up {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+.next-up-text { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--space-2); min-width: 0; }
+.next-up-label {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+.next-up-when { color: var(--muted); font-size: 14px; }
+.next-up-status { font-size: 14px; font-weight: 600; color: var(--warning); }
+.next-up-status.done { color: var(--success); }
+.next-up .btn { flex: 0 0 auto; }
 
 .slot-group { margin-bottom: var(--space-1); }
 .slot {

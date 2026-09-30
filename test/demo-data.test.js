@@ -167,4 +167,18 @@ describe('demo data source', () => {
     const marisol = (await firstEvent()).signups.find((s) => s.name === 'Marisol');
     await assert.rejects(() => data.updateSignup(marisol.id, { item: 'Nothing' }), /not allowed/);
   });
+
+  it('lets an organizer cancel an event, which then takes no sign-ups', async () => {
+    const event = await firstEvent();
+    await assert.rejects(() => data.setCancelled(event.id, true), /not allowed/);
+    await data.signIn('org@example.com', 'x');
+    await data.setCancelled(event.id, true);
+    assert.equal((await firstEvent()).cancelled, true);
+    await assert.rejects(
+      () => data.addSignup({ eventId: event.id, kind: 'host', name: 'Anna' }),
+      /cancelled/,
+    );
+    await data.setCancelled(event.id, false);
+    await data.addSignup({ eventId: event.id, kind: 'host', name: 'Anna' });
+  });
 });

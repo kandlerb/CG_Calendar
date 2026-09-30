@@ -8,6 +8,10 @@ import {
   loadWindowStart,
   signupFromForm,
   slotStatus,
+  eventCopy,
+  nextTitle,
+  repeatCount,
+  slotCopies,
 } from '../public/lib/forms.js';
 import { slotState } from '../public/lib/model.js';
 
@@ -187,4 +191,55 @@ describe('field limits', () => {
       assert.ok(limits.includes(LIMITS[key]), `${column}: schema says ${limits}, LIMITS says ${LIMITS[key]}`);
     });
   }
+});
+
+describe('repeating an event', () => {
+  const source = {
+    id: 'e1',
+    title: 'Community Group — Week 3',
+    date: '2026-10-03',
+    startTime: '18:30',
+    endTime: '20:30',
+    location: '',
+    description: 'Philippians 2',
+    needsHost: true,
+    hostLimit: 1,
+    allowOtherFood: true,
+    cancelled: true,
+  };
+
+  it('moves a numbered title along with the weeks', () => {
+    assert.equal(nextTitle('Community Group — Week 3'), 'Community Group — Week 4');
+    assert.equal(nextTitle('Week 9', 3), 'Week 12');
+    assert.equal(nextTitle('Session #2'), 'Session #3');
+  });
+
+  it('leaves a title with no series number alone', () => {
+    assert.equal(nextTitle('Fall Cookout 2026'), 'Fall Cookout 2026');
+    assert.equal(nextTitle('Potluck'), 'Potluck');
+  });
+
+  it('copies an event a number of weeks on, as a new event that is not cancelled', () => {
+    const copy = eventCopy(source, 2);
+    assert.equal(copy.id, null);
+    assert.equal(copy.date, '2026-10-17');
+    assert.equal(copy.title, 'Community Group — Week 5');
+    assert.equal(copy.startTime, '18:30');
+    assert.equal(copy.description, 'Philippians 2');
+    assert.equal('cancelled' in copy, false);
+  });
+
+  it('crosses month and year ends', () => {
+    assert.equal(eventCopy({ ...source, date: '2026-12-26' }, 1).date, '2027-01-02');
+  });
+
+  it('copies food slots as new slots', () => {
+    assert.deepEqual(slotCopies([{ id: 's1', label: 'Main dish', needed: 2, people: [1] }]), [
+      { id: '', label: 'Main dish', needed: 2 },
+    ]);
+  });
+
+  it('makes between 0 and 12 extra copies', () => {
+    assert.deepEqual(['', '-2', '3', '40', 'x'].map(repeatCount), [0, 0, 3, 12, 0]);
+  });
 });

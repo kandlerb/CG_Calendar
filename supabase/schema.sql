@@ -40,6 +40,10 @@ create table if not exists public.events (
   )
 );
 
+-- Added after the table: an organizer can call an event off without deleting
+-- it, so the people who saw it can see it was cancelled.
+alter table public.events add column if not exists cancelled boolean not null default false;
+
 create index if not exists events_date_idx on public.events (event_date);
 
 create table if not exists public.food_slots (
@@ -258,6 +262,9 @@ begin
   select * into v_event from public.events where id = new.event_id for update;
   if not found then
     raise exception 'That event no longer exists.';
+  end if;
+  if v_event.cancelled then
+    raise exception 'This event has been cancelled.';
   end if;
 
   if new.kind = 'host' then

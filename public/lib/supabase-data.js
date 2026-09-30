@@ -24,6 +24,8 @@ function toEvent(row, contacts = new Map()) {
     needsHost: row.needs_host,
     hostLimit: row.host_limit,
     allowOtherFood: row.allow_other_food,
+    // Missing on a project whose schema predates cancelling.
+    cancelled: Boolean(row.cancelled),
     foodSlots: (row.food_slots ?? []).map((slot) => ({
       id: slot.id,
       label: slot.label,
@@ -264,6 +266,14 @@ export function createSupabaseData(client) {
           })),
         }),
       );
+    },
+
+    /** Calls an event off, or back on. Organizers only, by the events policy. */
+    async setCancelled(id, cancelled) {
+      const rows = await write(() =>
+        client.from('events').update({ cancelled }).eq('id', id).select('id'),
+      );
+      if (!rows?.length) throw new Error('Could not change that event.');
     },
 
     async deleteEvent(id) {

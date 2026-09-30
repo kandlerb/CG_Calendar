@@ -147,7 +147,9 @@ without waiting for tests.)
 | Sign up to bring food | yes | yes |
 | See the phone number or email someone left | only their own | yes |
 | Edit or remove **their own** sign-up, until the event is over | yes | yes |
-| Create, edit, or delete events | **no** | yes |
+| Add an event to their own phone or computer calendar | yes | yes |
+| Create, edit, duplicate, cancel, or delete events | **no** | yes |
+| Tap a phone number to text it, or an email to write | no | yes |
 | Edit or remove anyone's sign-up | no | yes |
 
 Organizers sign in with the **Organizer sign in** link at the bottom of the
@@ -181,6 +183,19 @@ sign-up for them.
 If an organizer removes a food slot that people signed up for, the editor
 names them and asks first; their sign-ups are kept, listed under "Other food".
 
+### For organizers
+
+- **Repeat weekly.** A new event can also be added for up to the next 12
+  weeks, with the same time, host setting and food slots. A title ending in a
+  number counts up: "Week 3" is followed by "Week 4".
+- **Duplicate** in an event opens a copy a week later, ready to adjust. Sign-ups
+  are not copied.
+- **Cancel event** keeps the event on the calendar, crossed out and marked
+  cancelled, and stops new sign-ups. Nobody is notified, so tell the group.
+  **Restore event** undoes it. **Delete event** removes it for good.
+- A phone number someone left is a link that opens a text message to them; an
+  email opens a new email.
+
 ### What a first-time visitor sees
 
 The page opens with a **How to use this calendar** panel: find the event, open
@@ -196,7 +211,13 @@ header reopens it.
 - A month with no events says so and links to the month of the next event.
 - In **Month**, a key under the grid explains the chip colours; a lavender
   chip still needs a host.
-- **Upcoming** ends with **Show past events**, for checking who brought what.
+- **Month** starts with a **Next up** line: the next event that is still on,
+  what it needs, and a button to open it.
+- **Add to my calendar** in an event downloads it as a calendar file, which a
+  phone or computer offers to add. It has the title, time, details and a link
+  back, but never a host's address.
+- **Upcoming** has **Only my sign-ups** once you have signed up for something,
+  and ends with **Show past events**, for checking who brought what.
 - The phone number or email on a sign-up is optional and shown only to
   organizers (and to the person who left it). The database enforces that, not
   just the page.
@@ -281,7 +302,9 @@ public/                the website — this is what GitHub Pages serves
   app.js               all the page's behaviour
   lib/dates.js         calendar maths
   lib/model.js         turning rows into what's on screen
-  lib/forms.js         checking what was typed before it is saved
+  lib/forms.js         checking what was typed before it is saved; weekly copies
+  lib/ics.js           the "Add to my calendar" file
+  lib/contact.js       turning a phone number or email into a link
   lib/supabase-data.js everything that talks to Supabase
   lib/demo-data.js     the stand-in used by demo.html
 supabase/schema.sql    tables, row level security, sign-up rules

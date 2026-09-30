@@ -352,6 +352,7 @@ describe('events that are over', () => {
     const shaped = shapeEvent(over, { userId: ANNA, todayKey: today });
     assert.equal(eventSummary(shaped).text, 'This event has passed.');
     assert.deepEqual(eventBadges(shaped).map((b) => b.text), ['Past event', 'You signed up']);
+    assert.equal(eventSummary(shaped).closed, true);
   });
 
   it('lists past events most recent first', () => {
@@ -360,5 +361,29 @@ describe('events that are over', () => {
       {},
     );
     assert.deepEqual(past(list, today).map((e) => e.id), ['b', 'a']);
+  });
+});
+
+describe('cancelled events', () => {
+  const called = event({ cancelled: true, signups: [signup({ id: 'mine', slotId: 'main' })] });
+
+  it('asks for nothing and says it is cancelled', () => {
+    const shaped = shapeEvent(called, { userId: ANNA });
+    assert.equal(shaped.closed, true);
+    assert.equal(eventSummary(shaped).text, 'This event is cancelled.');
+    assert.deepEqual(eventBadges(shaped).map((b) => b.text), ['Cancelled', 'You signed up']);
+  });
+
+  it('stops a participant changing their sign-up, but not an organizer', () => {
+    assert.equal(shapeEvent(called, { userId: ANNA }).signups[0].canManage, false);
+    assert.equal(shapeEvent(called, { userId: 'x', isOrganizer: true }).signups[0].canManage, true);
+  });
+
+  it('is skipped when finding the next event', () => {
+    const list = shapeEvents(
+      [event({ id: 'off', date: '2026-09-03', cancelled: true }), event({ id: 'on', date: '2026-09-10' })],
+      {},
+    );
+    assert.equal(nextEvent(list, '2026-09-02').id, 'on');
   });
 });

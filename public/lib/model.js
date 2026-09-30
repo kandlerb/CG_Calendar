@@ -27,13 +27,16 @@ export function slotState(slot, signups) {
  */
 export function shapeEvent(event, { userId = null, isOrganizer = false, todayKey = null } = {}) {
   const past = Boolean(todayKey) && event.date < todayKey;
+  const cancelled = Boolean(event.cancelled);
+  // A past or cancelled event takes no more sign-ups; it is only a record.
+  const closed = past || cancelled;
   const signups = (event.signups ?? []).map((signup) => {
     // "Mine" is about whose name is on it; "canManage" also lets an organizer
     // tidy up after everyone. The page says "You" for the first and shows
-    // Edit and Remove for the second. Once an event is over its sign-ups are
-    // a record, so only an organizer may still change them.
+    // Edit and Remove for the second. Once an event is closed its sign-ups
+    // are a record, so only an organizer may still change them.
     const mine = Boolean(userId) && signup.createdBy === userId;
-    return { ...signup, isMine: mine, canManage: isOrganizer || (mine && !past) };
+    return { ...signup, isMine: mine, canManage: isOrganizer || (mine && !closed) };
   });
   const slots = [...(event.foodSlots ?? [])]
     .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
@@ -44,6 +47,8 @@ export function shapeEvent(event, { userId = null, isOrganizer = false, todayKey
   return {
     ...event,
     past,
+    cancelled,
+    closed,
     signups,
     hosts,
     food,
@@ -78,7 +83,8 @@ export function foodStillNeeded(event) {
  * straight away whether there is anything left for them to do.
  */
 export function eventSummary(event) {
-  if (event.past) return { done: true, past: true, text: 'This event has passed.' };
+  if (event.cancelled) return { done: true, closed: true, text: 'This event is cancelled.' };
+  if (event.past) return { done: true, closed: true, text: 'This event has passed.' };
   const needs = [];
   if (event.needsHost && event.hostSpotsLeft > 0) {
     needs.push(event.hostSpotsLeft === 1 ? 'a host' : `${event.hostSpotsLeft} more hosts`);
@@ -93,9 +99,9 @@ export function eventSummary(event) {
 /** The short status labels shown on a chip or card. */
 export function eventBadges(event) {
   const badges = [];
-  if (event.past) {
-    // Nothing is still needed from an event that is over.
-    badges.push({ text: 'Past event', warn: false });
+  if (event.closed) {
+    // Nothing is still needed from an event that is over or called off.
+    badges.push(event.cancelled ? { text: 'Cancelled', warn: true } : { text: 'Past event', warn: false });
     if (event.mine?.length) badges.push({ text: 'You signed up', warn: false, mine: true });
     return badges;
   }
@@ -141,7 +147,10 @@ export function past(events, todayKey) {
   return events.filter((event) => event.date < todayKey).reverse();
 }
 
-/** The soonest event on or after `todayKey`, or null. Events arrive sorted. */
+/**
+ * The soonest event on or after `todayKey` that is still on, or null. Events
+ * arrive sorted.
+ */
 export function nextEvent(events, todayKey) {
-  return upcoming(events, todayKey)[0] ?? null;
+  return upcoming(events, todayKey).find((event) => !event.cancelled) ?? null;
 }

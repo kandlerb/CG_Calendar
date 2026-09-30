@@ -439,6 +439,44 @@ select tests_assert(
   not has_function_privilege('anon', 'public.enforce_signup_rules()', 'execute'),
   'the sign-up trigger function is not on the REST API');
 
+-- ---------------------------------------------------------------------------
+-- Cancelling an event
+-- ---------------------------------------------------------------------------
+
+select tests_become(:anna::uuid);
+update public.events set cancelled = true where id = :'event_id'::uuid;
+select tests_assert(
+  not (select cancelled from public.events where id = :'event_id'::uuid),
+  'a participant cannot cancel an event');
+
+select tests_become(:organizer::uuid);
+update public.events set cancelled = true where id = :'event_id'::uuid;
+select tests_assert(
+  (select cancelled from public.events where id = :'event_id'::uuid),
+  'an organizer can cancel an event');
+
+select tests_become(:bob::uuid);
+select tests_expect_error(
+  format($$insert into public.signups (event_id, kind, name, item) values (%L, 'food', 'Bob', 'Rolls')$$, :'event_id'),
+  'has been cancelled',
+  'a cancelled event takes no new sign-ups');
+
+-- Saving the event's details does not quietly bring it back.
+select tests_become(:organizer::uuid);
+select public.save_event(
+  format('{"id":"%s","title":"Potluck","event_date":"2026-09-02","needs_host":true,
+           "host_limit":1,"allow_other_food":true}', :'event_id')::jsonb,
+  format('[{"id":"%s","label":"Main dish","needed":1}]', :'main_id')::jsonb
+);
+select tests_assert(
+  (select cancelled from public.events where id = :'event_id'::uuid),
+  'editing a cancelled event keeps it cancelled');
+
+update public.events set cancelled = false where id = :'event_id'::uuid;
+select tests_assert(
+  not (select cancelled from public.events where id = :'event_id'::uuid),
+  'an organizer can restore a cancelled event');
+
 -- Deleting an event takes its slots and sign-ups with it.
 delete from public.events where id = :'event_id'::uuid;
 select tests_assert((select count(*) from public.signups) = 0, 'deleting an event removes its sign-ups');

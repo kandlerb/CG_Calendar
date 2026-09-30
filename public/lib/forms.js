@@ -5,7 +5,7 @@
 // first is only so a mistake gets a plain sentence instead of a Postgres
 // constraint name.
 
-import { addMonths, isoDate, normalizeTime, startOfMonth } from './dates.js';
+import { addDays, addMonths, isoDate, normalizeTime, startOfMonth } from './dates.js';
 
 /** The longest each field may be. Mirrors the checks in schema.sql. */
 export const LIMITS = {
@@ -110,3 +110,47 @@ export function slotStatus(slot, { past = false } = {}) {
 export function loadWindowStart(today) {
   return isoDate(addMonths(startOfMonth(today), -LOOKBACK_MONTHS));
 }
+
+/** The most copies "Repeat weekly" makes in one go. */
+export const MAX_REPEAT_WEEKS = 12;
+
+/** How many extra weekly copies the form asked for: 0 up to MAX_REPEAT_WEEKS. */
+export function repeatCount(value) {
+  return Math.min(MAX_REPEAT_WEEKS, wholeNumber(value, { min: 0, fallback: 0 }));
+}
+
+/**
+ * The title `weeks` weeks on. A numbered series moves along with it —
+ * "Community Group — Week 3" becomes "Week 4" — and anything else stays as is.
+ */
+export function nextTitle(title, weeks = 1) {
+  return String(title ?? '').replace(
+    /(\b(?:week|wk|session|part|lesson|night)\s*#?\s*)(\d+)(\s*)$/i,
+    (_, label, n, tail) => `${label}${Number(n) + weeks}${tail}`,
+  );
+}
+
+/**
+ * A copy of `event` `weeks` weeks later, ready to save as a new event: same
+ * time, host setting and food slots, no sign-ups, and never cancelled.
+ */
+export function eventCopy(event, weeks = 1) {
+  return {
+    id: null,
+    title: nextTitle(event.title, weeks),
+    date: addDays(event.date, 7 * weeks),
+    startTime: event.startTime ?? '',
+    endTime: event.endTime ?? '',
+    location: event.location ?? '',
+    description: event.description ?? '',
+    needsHost: event.needsHost,
+    hostLimit: event.hostLimit,
+    allowOtherFood: event.allowOtherFood,
+  };
+}
+
+/** Food slots to give a copied event: the same ones, as new slots. */
+export function slotCopies(slots) {
+  return slots.map((slot) => ({ id: '', label: slot.label, needed: slot.needed }));
+}
+

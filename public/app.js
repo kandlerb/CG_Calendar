@@ -23,7 +23,20 @@ import {
   shapeEvents,
   upcoming,
 } from './lib/model.js';
-import { LIMITS, cleanSlots, eventFromForm, loadWindowStart, signupFromForm, slotStatus } from './lib/forms.js';
+import {
+  LIMITS,
+  MAX_REPEAT_WEEKS,
+  cleanSlots,
+  eventCopy,
+  eventFromForm,
+  loadWindowStart,
+  repeatCount,
+  signupFromForm,
+  slotCopies,
+  slotStatus,
+} from './lib/forms.js';
+import { contactLink } from './lib/contact.js';
+import { eventToIcs, icsFileName } from './lib/ics.js';
 
 const WEEKDAYS = [
   { short: 'Sun', full: 'Sunday' },
@@ -84,6 +97,8 @@ export function startApp(data, { onError } = {}) {
     loadedAt: 0,
     expandedDay: null,
     showPast: false,
+    // Upcoming, narrowed to the events this browser signed up for.
+    onlyMine: false,
     modal: null,
   };
 
@@ -91,6 +106,7 @@ export function startApp(data, { onError } = {}) {
     loading: document.getElementById('loading'),
     intro: document.getElementById('intro'),
     viewNote: document.getElementById('view-note'),
+    nextUp: document.getElementById('next-up'),
     toolbar: document.querySelector('.toolbar'),
     calendar: document.getElementById('calendar'),
     agenda: document.getElementById('agenda'),
@@ -227,6 +243,7 @@ export function startApp(data, { onError } = {}) {
       el.calendar.hidden = true;
       el.agenda.hidden = true;
       if (el.viewNote) el.viewNote.hidden = true;
+      if (el.nextUp) el.nextUp.hidden = true;
       return;
     }
 
@@ -243,7 +260,33 @@ export function startApp(data, { onError } = {}) {
     }
     if (monthView) renderMonth();
     else renderAgenda();
+    renderNextUp();
     renderViewNote();
+  }
+
+  /**
+   * One line above the month grid: the next gathering and what it still
+   * needs. Most visitors only care about that one. Upcoming already starts
+   * with it, so the line would only repeat the first card there.
+   */
+  function renderNextUp() {
+    if (!el.nextUp) return;
+    const next = state.view === 'month' ? nextEvent(state.events, isoDate(new Date())) : null;
+    el.nextUp.hidden = !next;
+    if (!next) return;
+    const summary = eventSummary(next);
+    const time = next.startTime ? ` · ${formatTime(next.startTime)}` : '';
+    el.nextUp.innerHTML = `
+      <div class="next-up-text">
+        <span class="next-up-label">Next up</span>
+        <strong>${esc(next.title)}</strong>
+        <span class="next-up-when">${esc(formatShortDate(next.date))}${esc(time)}</span>
+        <span class="next-up-status${summary.done ? ' done' : ''}">${esc(
+          summary.done ? 'All set' : summary.text.replace(/\.$/, ''),
+        )}</span>
+      </div>
+      <button type="button" class="btn primary small" data-event="${esc(next.id)}"
+              aria-label="Open ${esc(next.title)}">Open</button>`;
   }
 
   /**
@@ -296,19 +339,19 @@ export function startApp(data, { onError } = {}) {
   }
 
   function chipHtml(event) {
-    const wanted = !event.past && event.needsHost && event.hostSpotsLeft > 0;
+    const wanted = !event.closed && event.needsHost && event.hostSpotsLeft > 0;
     const time = event.startTime ? formatTime(event.startTime) : 'TBD';
     // A cell is only so wide, so the row is one line; the dot colour carries
     // the host status, and the key under the grid says what it means.
     const status = [
-      event.past ? 'Past event.' : '',
+      event.cancelled ? 'Cancelled.' : event.past ? 'Past event.' : '',
       wanted ? 'Needs a host.' : '',
       event.mine.length ? 'You signed up.' : '',
     ].filter(Boolean);
     const tip = [`${event.title}, ${time}`, event.location, ...status].filter(Boolean).join('. ');
     return `<button type="button" class="chip${wanted ? ' needs-host' : ''}${
       event.mine.length ? ' mine' : ''
-    }${event.past ? ' past' : ''}" data-event="${esc(event.id)}" title="${esc(tip)}">
+    }${event.past ? ' past' : ''}${event.cancelled ? ' cancelled' : ''}" data-event="${esc(event.id)}" title="${esc(tip)}">
       <span class="dot" aria-hidden="true"></span>
       <span class="chip-time">${esc(time)}</span>
       <span class="chip-title">${esc(event.title)}</span>
@@ -366,29 +409,44 @@ export function startApp(data, { onError } = {}) {
   // the card still opens from anywhere, without a heading, paragraphs and
   // badges all being read out as one button's name.
   function agendaCardHtml(event) {
-    return `<article class="agenda-card${event.past ? ' past' : ''}">
+    return `<article class="agenda-card${event.past ? ' past' : ''}${event.cancelled ? ' cancelled' : ''}">
       <p class="when">${esc(formatLongDate(event.date))} · ${esc(formatTimeRange(event))}</p>
       <h3><button type="button" class="agenda-open" data-event="${esc(event.id)}">${esc(event.title)}</button></h3>
       ${event.location ? `<p class="where">${esc(event.location)}</p>` : ''}
       ${badgeHtml(eventBadges(event))}
-      <span class="agenda-cue" aria-hidden="true">${event.past ? 'See who came →' : 'Open to sign up →'}</span>
+      <span class="agenda-cue" aria-hidden="true">${
+        event.cancelled ? 'See details →' : event.past ? 'See who came →' : 'Open to sign up →'
+      }</span>
     </article>`;
   }
 
   function renderAgenda() {
     const todayKey = isoDate(new Date());
-    const list = upcoming(state.events, todayKey);
-    const earlier = past(state.events, todayKey);
+    const mineOnly = (events) => (state.onlyMine ? events.filter((event) => event.mine.length) : events);
+    const allUpcoming = upcoming(state.events, todayKey);
+    const list = mineOnly(allUpcoming);
+    const earlier = mineOnly(past(state.events, todayKey));
+    // Offered once there is something to narrow to, and kept while it is on.
+    const filter =
+      state.onlyMine || allUpcoming.some((event) => event.mine.length)
+        ? `<div class="agenda-filter">
+             <button type="button" class="btn toggle small" data-only-mine aria-pressed="${state.onlyMine}">
+               Only my sign-ups
+             </button>
+           </div>`
+        : '';
     const cards = list.length
       ? list.map(agendaCardHtml).join('')
-      : `<p class="empty">
-          <strong>No upcoming events.</strong><br />
-          ${
-            state.viewer?.isOrganizer
-              ? 'Use “+ New event” to add one.'
-              : 'Only an organizer can add them.'
-          }
-        </p>`;
+      : state.onlyMine
+        ? '<p class="empty"><strong>You have no upcoming sign-ups.</strong></p>'
+        : `<p class="empty">
+            <strong>No upcoming events.</strong><br />
+            ${
+              state.viewer?.isOrganizer
+                ? 'Use “+ New event” to add one.'
+                : 'Only an organizer can add them.'
+            }
+          </p>`;
     // Past events stay out of the way, but someone checking who brought what
     // last week should not have to switch to the month grid to find it. Older
     // months may not be loaded yet, so the button is offered either way.
@@ -408,7 +466,7 @@ export function startApp(data, { onError } = {}) {
                : ''
            }`
         : '';
-    el.agenda.innerHTML = cards + pastPart;
+    el.agenda.innerHTML = filter + cards + pastPart;
   }
 
   // --- modals --------------------------------------------------------------
@@ -483,7 +541,11 @@ export function startApp(data, { onError } = {}) {
     if (modal.type === 'login') html = loginModalHtml();
     else if (modal.type === 'rename') html = renameModalHtml();
     else if (modal.type === 'eventForm')
-      html = eventFormHtml(modal.eventId ? eventById(modal.eventId) : null, modal.date);
+      html = eventFormHtml(
+        modal.eventId ? eventById(modal.eventId) : null,
+        modal.date,
+        modal.copyOf ? eventById(modal.copyOf) : null,
+      );
     else {
       const event = eventById(modal.eventId);
       if (!event) {
@@ -585,11 +647,7 @@ export function startApp(data, { onError } = {}) {
           signup.isMine ? '<span class="pill">You</span>' : ''
         }</span>
         ${details ? `<div class="slot-people">${esc(details)}</div>` : ''}
-        ${
-          signup.contact
-            ? `<div class="slot-people contact">${esc(signup.contact)}${esc(contactNote)}</div>`
-            : ''
-        }
+        ${signup.contact ? contactHtml(signup.contact, contactNote) : ''}
       </div>
       <div class="slot-actions">
         ${
@@ -602,6 +660,20 @@ export function startApp(data, { onError } = {}) {
             : ''
         }
       </div>
+    </div>`;
+  }
+
+  /**
+   * A contact line. An organizer can tap a phone number to text it, or an
+   * email to write; anyone else only ever sees their own, as plain text.
+   */
+  function contactHtml(contact, note) {
+    const link = state.viewer?.isOrganizer ? contactLink(contact) : null;
+    if (!link) return `<div class="slot-people contact">${esc(contact)}${esc(note)}</div>`;
+    return `<div class="slot-people contact">
+      <a class="contact-link" href="${esc(link.href)}" aria-label="${esc(`${link.label} ${contact}`)}">${esc(
+        contact,
+      )}<span class="contact-action">${esc(link.label)}</span></a>
     </div>`;
   }
 
@@ -672,9 +744,9 @@ export function startApp(data, { onError } = {}) {
   function hostSectionHtml(event, modal) {
     if (!event.needsHost && !event.hosts.length) return '';
     const formOpen = modal.form?.kind === 'host' && !modal.form.editId;
-    const spotsLeft = event.past ? 0 : event.hostSpotsLeft;
+    const spotsLeft = event.closed ? 0 : event.hostSpotsLeft;
     // Worded like the badge on the card, so the two read as the same thing.
-    const note = event.past
+    const note = event.closed
       ? ''
       : spotsLeft > 0
         ? spotsLeft === 1 && !event.hosts.length
@@ -687,7 +759,7 @@ export function startApp(data, { onError } = {}) {
         event.hosts.length
           ? event.hosts.map((h) => signupLine(h, { modal })).join('')
           : `<p class="hint">${
-              event.past
+              event.closed
                 ? 'Nobody signed up to host.'
                 : 'Nobody has signed up to host yet.'
             }</p>`
@@ -708,7 +780,7 @@ export function startApp(data, { onError } = {}) {
     const slots = event.foodSlots
       .map((slot) => {
         const openForm = form && form.slotId === slot.id;
-        const status = slotStatus(slot, { past: event.past });
+        const status = slotStatus(slot, { past: event.closed });
         return `<div class="slot-group">
           <div class="slot${status.tone === 'done' ? ' filled' : ''}">
             <div>
@@ -717,7 +789,7 @@ export function startApp(data, { onError } = {}) {
             </div>
             <div class="slot-actions">
               ${
-                openForm || event.past
+                openForm || event.closed
                   ? ''
                   : `<button type="button" class="btn${slot.met ? '' : ' primary'}" data-open-form="food"
                        data-slot="${esc(slot.id)}" data-slot-label="${esc(slot.label)}"
@@ -731,12 +803,12 @@ export function startApp(data, { onError } = {}) {
       })
       .join('');
 
-    if (event.past && !event.foodSlots.length && !event.otherFood.length) return '';
+    if (event.closed && !event.foodSlots.length && !event.otherFood.length) return '';
     const otherFormOpen = form && !form.slotId;
     const short = foodStillNeeded(event);
     const note =
-      event.past || !event.foodSlots.length ? '' : short > 0 ? `${short} more needed` : 'Every slot covered';
-    const intro = event.past
+      event.closed || !event.foodSlots.length ? '' : short > 0 ? `${short} more needed` : 'Every slot covered';
+    const intro = event.closed
       ? ''
       : event.foodSlots.length
         ? `<p class="hint">Pick a slot and say what you are bringing. The number is how many people the
@@ -751,7 +823,7 @@ export function startApp(data, { onError } = {}) {
           : ''
       }
       ${
-        event.allowOtherFood && !otherFormOpen && !event.past
+        event.allowOtherFood && !otherFormOpen && !event.closed
           ? '<button type="button" class="btn" data-open-form="food">Add other food</button>'
           : ''
       }
@@ -777,7 +849,7 @@ export function startApp(data, { onError } = {}) {
         </div>
         <button type="button" class="close" data-close aria-label="Close">&times;</button>
       </div>
-      <p class="summary${summary.done ? ' done' : ''}${summary.past ? ' past' : ''}">${esc(summary.text)}</p>
+      <p class="summary${summary.done ? ' done' : ''}${summary.closed ? ' closed' : ''}">${esc(summary.text)}</p>
       ${event.description ? `<p class="description">${esc(event.description)}</p>` : ''}
       ${
         event.mine.length
@@ -790,17 +862,32 @@ export function startApp(data, { onError } = {}) {
       ${foodSectionHtml(event, modal)}
       <div class="section footer-actions">
         <div class="form-actions">
-          <button type="button" class="btn" data-copy-event="${esc(event.id)}">Copy link to this event</button>
           ${
-            state.viewer?.isOrganizer
-              ? `<button type="button" class="btn" data-edit-event="${esc(event.id)}">Edit event</button>
-                 <button type="button" class="btn link danger" data-delete-event="${esc(
-                   event.id,
-                 )}">Delete event</button>`
-              : ''
+            event.closed
+              ? ''
+              : `<button type="button" class="btn" data-add-to-calendar="${esc(event.id)}">Add to my calendar</button>`
           }
+          <button type="button" class="btn" data-copy-event="${esc(event.id)}">Copy link to this event</button>
           <button type="button" class="btn ghost push-right" data-close>Close</button>
         </div>
+        ${
+          state.viewer?.isOrganizer
+            ? `<div class="form-actions organizer-actions">
+                <button type="button" class="btn" data-edit-event="${esc(event.id)}">Edit event</button>
+                <button type="button" class="btn" data-duplicate-event="${esc(event.id)}">Duplicate</button>
+                ${
+                  event.cancelled
+                    ? `<button type="button" class="btn" data-restore-event="${esc(event.id)}">Restore event</button>`
+                    : event.past
+                      ? ''
+                      : `<button type="button" class="btn link danger" data-cancel-event="${esc(
+                          event.id,
+                        )}">Cancel event</button>`
+                }
+                <button type="button" class="btn link danger" data-delete-event="${esc(event.id)}">Delete event</button>
+              </div>`
+            : ''
+        }
       </div>`;
   }
 
@@ -817,17 +904,32 @@ export function startApp(data, { onError } = {}) {
     </div>`;
   }
 
-  function eventFormHtml(event, presetDate) {
+  /**
+   * The event editor. `event` edits that event; `copyOf` starts a new one from
+   * an existing event, a week later; neither starts from scratch.
+   */
+  function eventFormHtml(event, presetDate, copyOf = null) {
     const editing = Boolean(event);
+    // What the fields start out holding.
+    const source = event ?? (copyOf ? eventCopy(copyOf, 1) : null);
     // A new event starts with one slot to show how it works. An event being
     // edited keeps exactly the slots it has — none, if the organizer removed them.
-    const slots = editing ? event.foodSlots : [{ label: 'Main dish', needed: 1, id: '' }];
-    const needsHost = event ? event.needsHost : true;
+    // A copy takes the same slots, as new ones.
+    const slots = editing
+      ? event.foodSlots
+      : copyOf
+        ? slotCopies(copyOf.foodSlots)
+        : [{ label: 'Main dish', needed: 1, id: '' }];
+    const needsHost = source ? source.needsHost : true;
     return `
       <div class="modal-head">
         <div>
-          <h2 id="modal-title">${editing ? 'Edit event' : 'New event'}</h2>
-          <p class="when">Visible to anyone with the link.</p>
+          <h2 id="modal-title">${editing ? 'Edit event' : copyOf ? 'Duplicate event' : 'New event'}</h2>
+          <p class="when">${
+            copyOf
+              ? `A copy of “${esc(copyOf.title)}”, a week later. Sign-ups are not copied.`
+              : 'Visible to anyone with the link.'
+          }</p>
         </div>
         <button type="button" class="close" data-close aria-label="Close">&times;</button>
       </div>
@@ -837,31 +939,46 @@ export function startApp(data, { onError } = {}) {
           <div class="field">
             <label for="ev-title">Title</label>
             <input id="ev-title" name="title" maxlength="${LIMITS.title}" placeholder="e.g. Community Group — Week 3" value="${esc(
-              event?.title ?? '',
+              source?.title ?? '',
             )}" data-autofocus required />
           </div>
           <div class="field narrow">
             <label for="ev-date">Date</label>
             <input id="ev-date" name="date" type="date" value="${esc(
-              event?.date ?? presetDate ?? isoDate(new Date()),
+              source?.date ?? presetDate ?? isoDate(new Date()),
             )}" required />
           </div>
           <div class="row">
             <div class="field">
               <label for="ev-start">Start time</label>
-              <input id="ev-start" name="startTime" type="time" value="${esc(event?.startTime ?? '18:00')}" />
+              <input id="ev-start" name="startTime" type="time" value="${esc(source?.startTime ?? '18:00')}" />
             </div>
             <div class="field">
               <label for="ev-end">End time <span class="help">(optional)</span></label>
-              <input id="ev-end" name="endTime" type="time" value="${esc(event?.endTime ?? '')}" />
+              <input id="ev-end" name="endTime" type="time" value="${esc(source?.endTime ?? '')}" />
             </div>
           </div>
           <div class="field">
             <label for="ev-description">Details <span class="help">(optional)</span></label>
             <textarea id="ev-description" name="description" maxlength="${LIMITS.description}" placeholder="Topic, other details">${esc(
-              event?.description ?? '',
+              source?.description ?? '',
             )}</textarea>
           </div>
+          ${
+            editing
+              ? ''
+              : `<div class="field">
+                  <label for="ev-repeat">Repeat weekly <span class="help">(optional)</span></label>
+                  <div class="inline-field">
+                    <span>Also add it for the next</span>
+                    <input id="ev-repeat" name="repeatWeeks" type="number" min="0" max="${MAX_REPEAT_WEEKS}"
+                           value="0" inputmode="numeric" />
+                    <span>weeks</span>
+                  </div>
+                  <span class="help">Each copy has the same time, host setting and food slots. A title
+                    ending in a number, like “Week 3”, counts up.</span>
+                </div>`
+          }
         </fieldset>
 
         <fieldset>
@@ -879,7 +996,7 @@ export function startApp(data, { onError } = {}) {
           <div class="field indented" data-show-when="hosting=needed" ${needsHost ? '' : 'hidden'}>
             <label for="ev-host-limit">How many hosts</label>
             <input id="ev-host-limit" name="hostLimit" type="number" min="1" value="${esc(
-              event?.hostLimit || 1,
+              source?.hostLimit || 1,
             )}" />
             <span class="help">Only the host's name is shown; share the address with the group separately.</span>
           </div>
@@ -892,7 +1009,7 @@ export function startApp(data, { onError } = {}) {
           <div class="field indented wide" data-show-when="hosting=set" ${needsHost ? 'hidden' : ''}>
             <label for="ev-location">Location</label>
             <input id="ev-location" name="location" maxlength="${LIMITS.location}" placeholder="e.g. the Smiths' home" value="${esc(
-              event?.location ?? '',
+              source?.location ?? '',
             )}" />
           </div>
         </fieldset>
@@ -917,7 +1034,7 @@ export function startApp(data, { onError } = {}) {
           </div>
           <div class="checkbox">
             <input id="ev-other-food" name="allowOtherFood" type="checkbox" ${
-              event ? (event.allowOtherFood ? 'checked' : '') : 'checked'
+              source ? (source.allowOtherFood ? 'checked' : '') : 'checked'
             } />
             <label for="ev-other-food">Allow food outside these slots</label>
           </div>
@@ -987,11 +1104,27 @@ export function startApp(data, { onError } = {}) {
     // An earlier month may not have been loaded; saving into it should still
     // show the event afterwards.
     if (state.since && event.date < state.since) state.since = event.date;
+    const repeat = form.dataset.eventId ? 0 : repeatCount(values.repeatWeeks);
     const id = await data.saveEvent(event, slots);
+    // The copies go in one by one. If one fails, the ones already saved stay,
+    // and the message says how far it got rather than leaving the form up to
+    // be submitted again, which would make duplicates.
+    let made = 1;
+    let failure = null;
+    for (let week = 1; week <= repeat && !failure; week += 1) {
+      try {
+        await data.saveEvent(eventCopy(event, week), slotCopies(slots));
+        made += 1;
+      } catch (err) {
+        failure = err;
+      }
+    }
     await reload();
     render();
     openModal({ type: 'event', eventId: id, form: null });
-    toast(form.dataset.eventId ? 'Event updated.' : 'Event created.');
+    if (failure) toast(`Created ${made} of ${repeat + 1} events. The rest failed: ${failure.message}`, 'error');
+    else if (repeat) toast(`Created ${made} events, one a week.`);
+    else toast(form.dataset.eventId ? 'Event updated.' : 'Event created.');
   }
 
   async function submitSignupForm(form) {
@@ -1040,6 +1173,19 @@ export function startApp(data, { onError } = {}) {
     render();
     renderIntro();
     toast('Name updated.');
+  }
+
+  /** Hands the browser a calendar file for the event; the phone offers to add it. */
+  function downloadIcs(event) {
+    const url = `${location.origin}${location.pathname}#event=${event.id}`;
+    const blob = new Blob([eventToIcs(event, { url })], { type: 'text/calendar;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = icsFileName(event);
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
   }
 
   async function copyLink(url, what) {
@@ -1131,6 +1277,31 @@ export function startApp(data, { onError } = {}) {
         renderModal();
       } else if (target.dataset.copyEvent) {
         await copyLink(`${location.origin}${location.pathname}#event=${target.dataset.copyEvent}`, 'Event link');
+      } else if (target.dataset.addToCalendar) {
+        const event = eventById(target.dataset.addToCalendar);
+        if (event) downloadIcs(event);
+      } else if (target.dataset.duplicateEvent) {
+        openModal({ type: 'eventForm', eventId: null, copyOf: target.dataset.duplicateEvent });
+      } else if (target.dataset.cancelEvent) {
+        const event = eventById(target.dataset.cancelEvent);
+        if (
+          !window.confirm(
+            `Cancel “${event?.title ?? 'this event'}”?\n\nIt stays on the calendar marked as cancelled, ` +
+              'and it stops taking sign-ups. Nobody is notified, so let the group know.',
+          )
+        ) {
+          return;
+        }
+        await data.setCancelled(target.dataset.cancelEvent, true);
+        await refresh();
+        toast('Event cancelled.');
+      } else if (target.dataset.restoreEvent) {
+        await data.setCancelled(target.dataset.restoreEvent, false);
+        await refresh();
+        toast('Event restored.');
+      } else if (target.hasAttribute('data-only-mine')) {
+        state.onlyMine = !state.onlyMine;
+        render();
       } else if (target.dataset.editEvent) {
         openModal({ type: 'eventForm', eventId: target.dataset.editEvent });
       } else if (target.dataset.deleteEvent) {
