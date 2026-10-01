@@ -9,6 +9,7 @@ import {
   formatTime,
   formatTimeRange,
   isoDate,
+  localDateOf,
   monthGrid,
   parseISODate,
   startOfMonth,
@@ -964,7 +965,8 @@ export function startApp(data, { onError } = {}) {
   }
 
   function memberRowHtml(member) {
-    const joined = member.joinedAt ? formatShortDate(String(member.joinedAt).slice(0, 10)) : '';
+    const joinedDay = member.joinedAt ? localDateOf(member.joinedAt) : '';
+    const joined = joinedDay ? formatShortDate(joinedDay) : '';
     return `<div class="slot person">
       <div>
         <span class="slot-label">${esc(member.name)}${

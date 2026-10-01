@@ -5,6 +5,7 @@ import {
   formatTime,
   formatTimeRange,
   isoDate,
+  localDateOf,
   monthGrid,
   normalizeTime,
   parseISODate,
@@ -74,5 +75,18 @@ describe('dates', () => {
     const grid = monthGrid(startOfMonth(new Date()));
     const todayKey = isoDate(new Date());
     assert.equal(grid.flat().filter((cell) => cell.key === todayKey).length, 1);
+  });
+
+  it('puts a UTC timestamp on the day it was where the viewer is', () => {
+    // 00:34 UTC on October 1 is still the evening of September 30 in New York.
+    const evening = '2026-10-01T00:34:29.144279+00:00';
+    const expected = isoDate(new Date(evening));
+    assert.equal(localDateOf(evening), expected);
+    if (new Date(evening).getTimezoneOffset() > 60) assert.equal(localDateOf(evening), '2026-09-30');
+  });
+
+  it('leaves a plain date alone, rather than reading it as UTC midnight', () => {
+    assert.equal(localDateOf('2026-01-05'), '2026-01-05');
+    assert.equal(localDateOf('not a date'), '');
   });
 });

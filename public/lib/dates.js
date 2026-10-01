@@ -7,6 +7,17 @@ export function isoDate(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/**
+ * The calendar day a moment fell on where the viewer is. A database timestamp
+ * is in UTC, so cutting the date off its text would put an evening sign-up in
+ * the Eastern US on the next day. A plain "2026-09-30" is already a day.
+ */
+export function localDateOf(value) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return String(value);
+  const moment = new Date(value);
+  return Number.isNaN(moment.getTime()) ? '' : isoDate(moment);
+}
+
 export function parseISODate(value) {
   const [y, m, d] = String(value).split('-').map(Number);
   return new Date(y, m - 1, d);
