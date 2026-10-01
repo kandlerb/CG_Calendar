@@ -1119,24 +1119,21 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
    has asked their device for less motion gets none of it (see the block at
    the end). */
 
-/* Light and dark: the new theme spreads out from the toggle button. */
-::view-transition-old(root),
-::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
-::view-transition-new(root) { animation: theme-reveal 480ms var(--ag-ease-standard); }
-@keyframes theme-reveal {
-  from { clip-path: circle(0 at var(--theme-x, 50%) var(--theme-y, 0)); }
-  to { clip-path: circle(150vmax at var(--theme-x, 50%) var(--theme-y, 0)); }
-}
-/* Browsers without that get a cross-fade of the colours instead. */
-.theme-fading,
-.theme-fading *,
-.theme-fading *::before,
-.theme-fading *::after {
+/* Light and dark: while theme.js has .theme-blending on the page, every
+   colour eases from the old theme to the new one. */
+.theme-blending,
+.theme-blending *,
+.theme-blending *::before,
+.theme-blending *::after {
   transition:
-    background-color 320ms var(--ag-ease-standard),
-    color 320ms var(--ag-ease-standard),
-    border-color 320ms var(--ag-ease-standard),
-    fill 320ms var(--ag-ease-standard) !important;
+    background-color 700ms ease-in-out,
+    color 700ms ease-in-out,
+    border-color 700ms ease-in-out,
+    outline-color 700ms ease-in-out,
+    box-shadow 700ms ease-in-out,
+    text-decoration-color 700ms ease-in-out,
+    fill 700ms ease-in-out,
+    stroke 700ms ease-in-out !important;
 }
 /* The sun and moon turn in as they swap. */
 .theme-btn svg { animation: icon-turn 420ms var(--ag-ease-out); }
@@ -1201,10 +1198,9 @@ details > summary::marker { transition: color 150ms; }
 /* Month to month (see goToMonth in app.js): the grid slides out one side and
    the next month in from the other; nothing outside the page area shows. */
 #main { overflow-x: clip; position: relative; }
-.calendar-outgoing { pointer-events: none; }
+.slide-outgoing { pointer-events: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  ::view-transition-new(root) { animation: none; }
   .theme-btn svg,
   .topbar.menu-open .topbar-actions,
   .modal-root:not([hidden]),

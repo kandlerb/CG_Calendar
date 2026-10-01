@@ -46,33 +46,26 @@
     } catch (e) {
       /* the choice lasts until the page is reloaded */
     }
-    switchTo(next, button);
+    switchTo(next);
   });
 
   /**
-   * Changes theme with a little motion: where the browser can, the new theme
-   * spreads out in a circle from the button; elsewhere the colours fade
-   * across. Nothing moves for anyone who has asked their device for less
-   * motion.
+   * Changes theme by blending: every colour on the page eases from the old
+   * theme to the new one over most of a second. Nothing moves for anyone who
+   * has asked their device for less motion.
    */
-  function switchTo(next, button) {
-    function change() {
-      apply(next);
-      sync();
-    }
+  var BLEND_MS = 700;
+  var blendTimer = null;
+  function switchTo(next) {
     var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (still) return change();
-    if (document.startViewTransition) {
-      var box = button.getBoundingClientRect();
-      root.style.setProperty('--theme-x', box.left + box.width / 2 + 'px');
-      root.style.setProperty('--theme-y', box.top + box.height / 2 + 'px');
-      document.startViewTransition(change);
-      return;
+    if (!still) {
+      root.classList.add('theme-blending');
+      clearTimeout(blendTimer);
+      blendTimer = setTimeout(function () {
+        root.classList.remove('theme-blending');
+      }, BLEND_MS + 50);
     }
-    root.classList.add('theme-fading');
-    change();
-    setTimeout(function () {
-      root.classList.remove('theme-fading');
-    }, 400);
+    apply(next);
+    sync();
   }
 })();

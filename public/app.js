@@ -349,6 +349,11 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
    * with it, so the line would only repeat the first card there.
    */
   function renderNextUp() {
+    drawNextUp();
+    holdBack(el.nextUp);
+  }
+
+  function drawNextUp() {
     if (!el.nextUp) return;
     const next = state.view === 'month' ? nextEvent(state.events, isoDate(new Date())) : null;
     el.nextUp.hidden = !next;
@@ -377,12 +382,18 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
   function renderViewNote() {
     if (!el.viewNote) return;
     drawViewNote();
-    // While the month is changing the note waits off stage; goToMonth()
-    // brings it in once the new month has slid into place.
-    if (state.monthMove) {
-      state.monthMove.noteWanted = !el.viewNote.hidden;
-      el.viewNote.hidden = true;
-    }
+    holdBack(el.viewNote);
+  }
+
+  /**
+   * While a slide is under way, the bars above the grid wait off stage;
+   * slideTo() brings back the ones that should show once the slide is done.
+   */
+  function holdBack(node) {
+    const move = state.monthMove;
+    if (!node || !move?.holds.includes(node)) return;
+    move.wanted.set(node, !node.hidden);
+    node.hidden = true;
   }
 
   function drawViewNote() {
@@ -880,86 +891,113 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
   }
 
   /**
-   * Moves the month grid to `month`, as a little sequence:
-   *   1. a "No events in …" note slides up and away, and the grid grows back;
-   *   2. the old month slides fully off one side while the new month slides
-   *      on from the other, side by side, like turning a page;
-   *   3. if the new month has no events, its note slides down from the top,
-   *      nudging the grid down to make room.
-   * Clicking again mid-way picks up from whatever is on screen.
+   * Moves the month grid to `month`. See slideTo() for how it plays.
    */
   async function goToMonth(month) {
     const from = state.cursor;
     const direction = Math.sign(month.getFullYear() * 12 + month.getMonth() - (from.getFullYear() * 12 + from.getMonth()));
-    state.cursor = month;
-    state.expandedDay = null;
-    const animate = direction !== 0 && state.view === 'month' && !lessMotion() && el.calendar?.animate;
+    await slideTo(direction, [el.viewNote], () => {
+      state.cursor = month;
+      state.expandedDay = null;
+    }, state.view === 'month');
+  }
+
+  /** Month and Upcoming sit side by side: Upcoming is to the right. */
+  async function switchView(view) {
+    if (view === state.view) return;
+    const direction = view === 'list' ? 1 : -1;
+    await slideTo(direction, [el.nextUp, el.viewNote], () => {
+      state.view = view;
+      state.viewChosen = true;
+      remembered.write(VIEW_KEY, view);
+    });
+  }
+
+  /**
+   * Changes what the page shows, as a little sequence:
+   *   1. the bars above it that may change (the "No events in …" note, and
+   *      Next up when switching views) slide up and away, and the page grows
+   *      back into their room;
+   *   2. what was on screen slides fully off one side while the new view
+   *      slides on from the other, side by side, like turning a page;
+   *   3. the bars that belong with the new view slide back down from the top.
+   * Clicking again mid-way picks up from whatever is on screen.
+   */
+  async function slideTo(direction, holds, change, slides = true) {
+    const animate = slides && direction !== 0 && !lessMotion() && el.calendar?.animate;
     if (!animate) {
       clearSlide();
       state.monthMove = null;
+      change();
       render();
       return;
     }
 
     const interrupted = Boolean(state.monthMove);
-    const move = { noteWanted: false };
+    const move = { holds, wanted: new Map() };
     state.monthMove = move;
     const current = () => state.monthMove === move;
     clearSlide();
-    el.viewNote?.getAnimations().forEach((a) => a.cancel());
+    holds.forEach((node) => node?.getAnimations().forEach((a) => a.cancel()));
 
-    if (!interrupted && el.viewNote && !el.viewNote.hidden) {
-      await noteAway();
-      if (!current()) return;
+    if (!interrupted) {
+      const leaving = holds.filter((node) => node && !node.hidden);
+      if (leaving.length) {
+        await Promise.all(leaving.map((node) => barAway(node)));
+        if (!current()) return;
+      }
     }
 
-    // A still copy of the month on screen slides away while the real grid,
-    // redrawn with the new month, slides in beside it.
-    const outgoing = snapshotCalendar();
-    render(); // the note, if the new month has one, is held back
+    // A still copy of what is on screen slides away while the real page,
+    // redrawn with the new month or view, slides in beside it.
+    const outgoing = snapshot(visiblePane());
+    change();
+    render(); // bars that belong with the new view are held back for now
+    const incoming = visiblePane();
     const gap = 24;
     const away = `translateX(calc(${-direction * 100}% - ${direction * gap}px))`;
     const enter = `translateX(calc(${direction * 100}% + ${direction * gap}px))`;
     const timing = [420, 'cubic-bezier(0.65, 0, 0.35, 1)'];
     await Promise.all([
       play(outgoing, [{ transform: 'none' }, { transform: away }], ...timing),
-      play(el.calendar, [{ transform: enter }, { transform: 'none' }], ...timing),
+      play(incoming, [{ transform: enter }, { transform: 'none' }], ...timing),
     ]);
     outgoing?.remove();
     if (!current()) return;
 
     state.monthMove = null;
-    if (move.noteWanted && el.viewNote) {
-      el.viewNote.hidden = false;
-      await noteIn();
-    }
+    const arriving = holds.filter((node) => node && move.wanted.get(node));
+    arriving.forEach((node) => (node.hidden = false));
+    await Promise.all(arriving.map((node) => barIn(node)));
   }
 
-  /** A non-interactive copy of the grid, laid exactly over it. */
-  function snapshotCalendar() {
-    const grid = el.calendar;
-    if (!grid || grid.hidden) return null;
-    const copy = grid.cloneNode(true);
+  const visiblePane = () => [el.calendar, el.agenda].find((node) => node && !node.hidden) ?? null;
+
+  /** A non-interactive copy of a pane, laid exactly over it. */
+  function snapshot(pane) {
+    if (!pane) return null;
+    const copy = pane.cloneNode(true);
     copy.removeAttribute('id');
-    copy.classList.add('calendar-outgoing');
+    copy.classList.add('slide-outgoing');
     copy.setAttribute('aria-hidden', 'true');
     copy.inert = true;
     Object.assign(copy.style, {
       position: 'absolute',
-      top: `${grid.offsetTop}px`,
-      left: `${grid.offsetLeft}px`,
-      width: `${grid.offsetWidth}px`,
-      height: `${grid.offsetHeight}px`,
+      top: `${pane.offsetTop}px`,
+      left: `${pane.offsetLeft}px`,
+      width: `${pane.offsetWidth}px`,
+      height: `${pane.offsetHeight}px`,
       margin: '0',
     });
-    grid.parentElement.append(copy);
+    pane.parentElement.append(copy);
+    copy.scrollTop = pane.scrollTop;
     return copy;
   }
 
-  /** Ends any slide still running: the old copy goes, the grid stands still. */
+  /** Ends any slide still running: the copy goes, the page stands still. */
   function clearSlide() {
-    document.querySelectorAll('.calendar-outgoing').forEach((node) => node.remove());
-    el.calendar?.getAnimations().forEach((a) => a.cancel());
+    document.querySelectorAll('.slide-outgoing').forEach((node) => node.remove());
+    [el.calendar, el.agenda].forEach((node) => node?.getAnimations().forEach((a) => a.cancel()));
   }
 
   function play(node, keyframes, duration, easing) {
@@ -968,10 +1006,10 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
     return run.finished.catch(() => {});
   }
 
-  /** The note's size, including the gap the page leaves after it. */
-  function noteFrames() {
-    const height = el.viewNote.getBoundingClientRect().height;
-    const gap = parseFloat(getComputedStyle(el.viewNote.parentElement).rowGap) || 0;
+  /** A bar's size, including the gap the page leaves after it. */
+  function barFrames(node) {
+    const height = node.getBoundingClientRect().height;
+    const gap = parseFloat(getComputedStyle(node.parentElement).rowGap) || 0;
     const shown = { height: `${height}px`, marginBottom: '0px', opacity: 1, transform: 'none' };
     const gone = {
       height: '0px',
@@ -984,19 +1022,19 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
     return { shown, gone };
   }
 
-  async function noteAway() {
-    const { shown, gone } = noteFrames();
-    el.viewNote.style.overflow = 'hidden';
-    await play(el.viewNote, [shown, gone], 200, 'ease-in');
-    el.viewNote.style.overflow = '';
-    el.viewNote.hidden = true;
+  async function barAway(node) {
+    const { shown, gone } = barFrames(node);
+    node.style.overflow = 'hidden';
+    await play(node, [shown, gone], 200, 'ease-in');
+    node.style.overflow = '';
+    node.hidden = true;
   }
 
-  async function noteIn() {
-    const { shown, gone } = noteFrames();
-    el.viewNote.style.overflow = 'hidden';
-    await play(el.viewNote, [gone, shown], 260, 'cubic-bezier(0.22, 1, 0.36, 1)');
-    el.viewNote.style.overflow = '';
+  async function barIn(node) {
+    const { shown, gone } = barFrames(node);
+    node.style.overflow = 'hidden';
+    await play(node, [gone, shown], 260, 'cubic-bezier(0.22, 1, 0.36, 1)');
+    node.style.overflow = '';
   }
 
   // A closing dialog fades out for a moment before it is cleared away.
@@ -1897,11 +1935,7 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
     if (!target) return;
     try {
       if (target.dataset.view) {
-        state.view = target.dataset.view;
-        state.viewChosen = true;
-        remembered.write(VIEW_KEY, state.view);
-        render();
-        animateOnce(state.view === 'month' ? el.calendar : el.agenda, 'fade-up');
+        await switchView(target.dataset.view);
       } else if (target.id === 'prev' || target.id === 'next') {
         const moving = goToMonth(addMonths(state.cursor, target.id === 'prev' ? -1 : 1));
         await loadEarlierIfNeeded();

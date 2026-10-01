@@ -458,7 +458,7 @@ test('the theme switches without animating for anyone who asked for less motion'
   await page.getByRole('button', { name: 'Dark mode' }).click();
   // No view transition and no fade: the theme is applied straight away.
   expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
-  expect(await page.evaluate(() => document.documentElement.classList.contains('theme-fading'))).toBe(false);
+  expect(await page.evaluate(() => document.documentElement.classList.contains('theme-blending'))).toBe(false);
 });
 
 test('opening a sign-up form inside an open event does not replay the dialog animation', async ({ page }) => {
@@ -476,8 +476,10 @@ test('with no choice made, the theme follows the device', async ({ page }) => {
   // A light choice wins over a dark device.
   await page.getByRole('button', { name: 'Dark mode' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-  const color = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-  expect(color).toBe('rgb(251, 244, 238)');
+  // The colours blend over most of a second.
+  await expect
+    .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
+    .toBe('rgb(251, 244, 238)');
 });
 
 test('signing out shows only the sign-in screen', async ({ page }) => {
@@ -646,7 +648,38 @@ test('the old month slides off while the new one slides on, side by side', async
   await page.locator('#next').click();
   // Mid-slide there are two grids on screen: a still copy of the old month
   // on its way out, and the real grid with the new month coming in.
-  await expect(page.locator('.calendar-outgoing')).toHaveCount(1);
-  await expect(page.locator('.calendar-outgoing')).toHaveCount(0);
+  await expect(page.locator('.slide-outgoing')).toHaveCount(1);
+  await expect(page.locator('.slide-outgoing')).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => document.getElementById('calendar').getAnimations().length)).toBe(0);
+});
+
+test('switching theme blends the colours rather than snapping', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto('/demo.html');
+  const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  const light = await background();
+  await page.getByRole('button', { name: 'Dark mode' }).click();
+  await expect(page.locator('html')).toHaveClass(/theme-blending/);
+  await page.waitForTimeout(300);
+  const midway = await background();
+  await expect(page.locator('html')).not.toHaveClass(/theme-blending/);
+  const dark = await background();
+  expect(midway).not.toBe(light);
+  expect(midway).not.toBe(dark);
+});
+
+test('Upcoming slides in beside the month, and back', async ({ page }) => {
+  await page.goto('/demo.html');
+  await expect(page.locator('#period')).toHaveText(/\d{4}/);
+  await page.getByRole('button', { name: 'Upcoming' }).click();
+  await expect(page.locator('.slide-outgoing')).toHaveCount(1);
+  await expect(page.locator('.slide-outgoing')).toHaveCount(0);
+  await expect(page.locator('#agenda')).toBeVisible();
+  await expect(page.locator('#calendar')).toBeHidden();
+  await expect(page.locator('#next-up')).toBeHidden();
+
+  await page.getByRole('button', { name: 'Month' }).click();
+  await expect(page.locator('#calendar')).toBeVisible();
+  await expect(page.locator('#next-up')).toBeVisible();
+  await expect(page.locator('.slide-outgoing')).toHaveCount(0);
 });
