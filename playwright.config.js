@@ -14,7 +14,7 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
-    command: 'python3 -m http.server 8123 --directory public',
+    command: 'node scripts/serve-public.mjs 8123',
     url: 'http://localhost:8123/demo.html',
     reuseExistingServer: !process.env.CI,
   },
