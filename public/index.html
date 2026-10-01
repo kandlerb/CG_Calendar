@@ -2,10 +2,30 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#2c1f4a" />
     <title>Community Group Calendar</title>
-    <meta name="description" content="Sign up to host community group events and say what food you'll bring." />
+    <meta name="description" content="See what's coming up, sign up to host, and say what you're bringing." />
+    <!-- What a group chat shows beside the link. Absolute addresses, as the
+         apps that fetch them require. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Community Group Calendar" />
+    <meta property="og:title" content="Community Group Calendar" />
+    <meta property="og:description" content="See what's coming up, sign up to host, and say what you're bringing." />
+    <meta property="og:url" content="https://kandlerb.github.io/CG_Calendar/" />
+    <meta property="og:image" content="https://kandlerb.github.io/CG_Calendar/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Community Group Calendar" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <!-- Installs like an app: Add to Home Screen gives an icon that opens
+         full screen. -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="CG Calendar" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='5' width='26' height='24' rx='6' fill='%232c1f4a'/%3E%3Crect x='3' y='5' width='26' height='3' rx='1.5' fill='%23c79ddb'/%3E%3Crect x='3' y='8' width='26' height='3' fill='%23f4a3b8'/%3E%3Crect x='3' y='11' width='26' height='3' fill='%23ff9a5c'/%3E%3Ccircle cx='16' cy='21' r='4' fill='%23f2a93b'/%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

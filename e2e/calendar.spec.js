@@ -690,3 +690,36 @@ test('Upcoming slides in beside the month, and back', async ({ page }) => {
   await expect(page.locator('#next-up')).toBeVisible();
   await expect(page.locator('.slide-outgoing')).toHaveCount(0);
 });
+
+test('swiping the month grid on a phone changes the month', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.goto('/demo.html');
+  await page.getByRole('button', { name: 'Month' }).click();
+  const period = page.locator('#period');
+  await expect(period).toHaveText(/\d{4}/);
+  const start = await period.textContent();
+  const swipe = async (fromX, toX) => {
+    await page.dispatchEvent('#calendar', 'pointerdown', { pointerType: 'touch', clientX: fromX, clientY: 400 });
+    await page.dispatchEvent('#calendar', 'pointerup', { pointerType: 'touch', clientX: toX, clientY: 410 });
+  };
+  await swipe(300, 100); // leftward: the next month
+  await expect(period).not.toHaveText(start);
+  await expect(page.locator('.slide-outgoing')).toHaveCount(0);
+  await swipe(100, 300); // rightward: back again
+  await expect(period).toHaveText(start);
+
+  // A mostly-vertical drag is a scroll, not a swipe.
+  await page.dispatchEvent('#calendar', 'pointerdown', { pointerType: 'touch', clientX: 200, clientY: 200 });
+  await page.dispatchEvent('#calendar', 'pointerup', { pointerType: 'touch', clientX: 260, clientY: 500 });
+  await page.waitForTimeout(600);
+  await expect(period).toHaveText(start);
+});
+
+test('the page can be installed as an app', async ({ page, request }) => {
+  await page.goto('/demo.html');
+  const res = await request.get('/manifest.webmanifest');
+  const manifest = await res.json();
+  expect(manifest.display).toBe('standalone');
+  expect(manifest.icons.some((i) => i.purpose === 'maskable')).toBe(true);
+  for (const icon of manifest.icons) expect((await request.get(`/${icon.src}`)).ok()).toBe(true);
+});

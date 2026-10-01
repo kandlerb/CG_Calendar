@@ -1210,3 +1210,13 @@ details > summary::marker { transition: color 150ms; }
     transform: none !important;
   }
 }
+
+/* Installed as an app on an iPhone, the page runs up under the clock and
+   battery. The top bar grows by that much, in its own colour, so nothing
+   sits beneath them. (Zero everywhere else.) */
+.topbar { border-top: env(safe-area-inset-top, 0px) solid var(--twilight); }
+.toast { margin-bottom: env(safe-area-inset-bottom, 0px); }
+
+/* Sideways swipes on the month grid are the page's to handle (they change
+   the month); up and down still scroll. */
+.calendar { touch-action: pan-y; }

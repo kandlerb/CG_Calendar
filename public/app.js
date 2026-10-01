@@ -1907,6 +1907,31 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
 
   // --- wiring --------------------------------------------------------------
 
+  // On a phone, swiping the month grid sideways turns the page: left for the
+  // next month, right for the one before, with the same slide as ‹ and ›.
+  // Only a clear sideways flick counts, so scrolling and tapping work as ever.
+  let swipe = null;
+  el.calendar?.addEventListener('pointerdown', (domEvent) => {
+    if (domEvent.pointerType !== 'touch' || state.view !== 'month') return;
+    swipe = { x: domEvent.clientX, y: domEvent.clientY, at: Date.now() };
+  });
+  el.calendar?.addEventListener('pointercancel', () => (swipe = null));
+  el.calendar?.addEventListener('pointerup', async (domEvent) => {
+    if (!swipe) return;
+    const dx = domEvent.clientX - swipe.x;
+    const dy = domEvent.clientY - swipe.y;
+    const quick = Date.now() - swipe.at < 800;
+    swipe = null;
+    if (!quick || Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    try {
+      const moving = goToMonth(addMonths(state.cursor, dx < 0 ? 1 : -1));
+      await loadEarlierIfNeeded();
+      await moving;
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+
   // On a narrow screen the header buttons live in a menu behind ☰. It closes
   // on a pick, a tap anywhere else, or Escape.
   function setMenu(open) {
