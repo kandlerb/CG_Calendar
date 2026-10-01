@@ -608,3 +608,32 @@ test('the calendar works the same when the weather service is down', async ({ pa
   await expect(dialog(page)).toContainText('Community Group — Week 1');
   await expect(dialog(page).locator('.when.weather')).toBeHidden();
 });
+
+test('stepping months slides the grid and brings the empty-month note in after', async ({ page }) => {
+  await page.goto('/demo.html');
+  const note = page.locator('#view-note');
+  const period = page.locator('#period');
+  const startMonth = await period.textContent();
+
+  // Forward to a month with no events: the note arrives once the grid settles.
+  await page.locator('#next').click();
+  await page.locator('#next').click();
+  await expect(period).not.toHaveText(startMonth);
+  await expect(note).toBeVisible();
+  await expect(note).toContainText('No events in');
+  await expect.poll(() => page.evaluate(() => document.getElementById('calendar').getAnimations().length)).toBe(0);
+
+  // Back home: the note leaves and stays gone.
+  await page.getByRole('button', { name: 'Today' }).click();
+  await expect(period).toHaveText(startMonth);
+  await expect(note).toBeHidden();
+});
+
+test('stepping months with reduced motion changes the month at once', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/demo.html');
+  const before = await page.locator('#period').textContent();
+  await page.locator('#next').click();
+  expect(await page.locator('#period').textContent()).not.toBe(before);
+  expect(await page.evaluate(() => document.getElementById('calendar').getAnimations().length)).toBe(0);
+});

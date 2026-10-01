@@ -376,6 +376,16 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
    */
   function renderViewNote() {
     if (!el.viewNote) return;
+    drawViewNote();
+    // While the month is changing the note waits off stage; goToMonth()
+    // brings it in once the new month has slid into place.
+    if (state.monthMove) {
+      state.monthMove.noteWanted = !el.viewNote.hidden;
+      el.viewNote.hidden = true;
+    }
+  }
+
+  function drawViewNote() {
     const todayKey = isoDate(new Date());
     const soonest = nextEvent(state.events, todayKey);
     const organizerHint = state.viewer?.isOrganizer
@@ -867,6 +877,96 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
     void node.offsetWidth; // restart the animation if it was mid-way
     node.classList.add(className);
     node.addEventListener('animationend', () => node.classList.remove(className), { once: true });
+  }
+
+  /**
+   * Moves the month grid to `month`, as a little sequence:
+   *   1. a "No events in …" note slides up and away, and the grid grows back;
+   *   2. the grid slides out toward the side you are leaving by;
+   *   3. the new month slides in from the other side;
+   *   4. if it has no events, its note slides down from the top, nudging the
+   *      grid down to make room.
+   * Clicking again mid-way skips straight to the newest month and slides it in.
+   */
+  async function goToMonth(month) {
+    const from = state.cursor;
+    const direction = Math.sign(month.getFullYear() * 12 + month.getMonth() - (from.getFullYear() * 12 + from.getMonth()));
+    state.cursor = month;
+    state.expandedDay = null;
+    const animate = direction !== 0 && state.view === 'month' && !lessMotion() && el.calendar?.animate;
+    if (!animate) {
+      state.monthMove = null;
+      render();
+      return;
+    }
+
+    const interrupted = Boolean(state.monthMove);
+    const move = { noteWanted: false };
+    state.monthMove = move;
+    const current = () => state.monthMove === move;
+    for (const node of [el.calendar, el.viewNote]) node?.getAnimations().forEach((a) => a.cancel());
+
+    if (!interrupted) {
+      if (el.viewNote && !el.viewNote.hidden) {
+        await noteAway();
+        if (!current()) return;
+      }
+      await play(el.calendar, [
+        { transform: 'none', opacity: 1 },
+        { transform: `translateX(${direction * -12}%)`, opacity: 0 },
+      ], 170, 'ease-in');
+      if (!current()) return;
+    }
+
+    render(); // draws the new month; the note, if any, is held back
+    await play(el.calendar, [
+      { transform: `translateX(${direction * 12}%)`, opacity: 0 },
+      { transform: 'none', opacity: 1 },
+    ], 220, 'cubic-bezier(0.22, 1, 0.36, 1)');
+    if (!current()) return;
+
+    state.monthMove = null;
+    if (move.noteWanted && el.viewNote) {
+      el.viewNote.hidden = false;
+      await noteIn();
+    }
+  }
+
+  function play(node, keyframes, duration, easing) {
+    if (!node) return Promise.resolve();
+    const run = node.animate(keyframes, { duration, easing });
+    return run.finished.catch(() => {});
+  }
+
+  /** The note's size, including the gap the page leaves after it. */
+  function noteFrames() {
+    const height = el.viewNote.getBoundingClientRect().height;
+    const gap = parseFloat(getComputedStyle(el.viewNote.parentElement).rowGap) || 0;
+    const shown = { height: `${height}px`, marginBottom: '0px', opacity: 1, transform: 'none' };
+    const gone = {
+      height: '0px',
+      paddingTop: '0px',
+      paddingBottom: '0px',
+      marginBottom: `${-gap}px`,
+      opacity: 0,
+      transform: 'translateY(-60%)',
+    };
+    return { shown, gone };
+  }
+
+  async function noteAway() {
+    const { shown, gone } = noteFrames();
+    el.viewNote.style.overflow = 'hidden';
+    await play(el.viewNote, [shown, gone], 200, 'ease-in');
+    el.viewNote.style.overflow = '';
+    el.viewNote.hidden = true;
+  }
+
+  async function noteIn() {
+    const { shown, gone } = noteFrames();
+    el.viewNote.style.overflow = 'hidden';
+    await play(el.viewNote, [gone, shown], 260, 'cubic-bezier(0.22, 1, 0.36, 1)');
+    el.viewNote.style.overflow = '';
   }
 
   // A closing dialog fades out for a moment before it is cleared away.
@@ -1773,16 +1873,11 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
         render();
         animateOnce(state.view === 'month' ? el.calendar : el.agenda, 'fade-up');
       } else if (target.id === 'prev' || target.id === 'next') {
-        state.cursor = addMonths(state.cursor, target.id === 'prev' ? -1 : 1);
-        state.expandedDay = null;
-        render();
-        animateOnce(el.calendar, target.id === 'prev' ? 'slide-from-left' : 'slide-from-right');
+        const moving = goToMonth(addMonths(state.cursor, target.id === 'prev' ? -1 : 1));
         await loadEarlierIfNeeded();
+        await moving;
       } else if (target.id === 'today') {
-        state.cursor = startOfMonth(new Date());
-        state.expandedDay = null;
-        render();
-        animateOnce(el.calendar, 'fade-up');
+        await goToMonth(startOfMonth(new Date()));
       } else if (target.id === 'help-btn') {
         toggleIntro();
       } else if (target.hasAttribute('data-dismiss-intro')) {
@@ -1841,10 +1936,7 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
         openModal({ type: 'eventForm', eventId: null });
       } else if (target.dataset.gotoEvent) {
         const event = eventById(target.dataset.gotoEvent);
-        if (event) {
-          state.cursor = startOfMonth(parseISODate(event.date));
-          render();
-        }
+        if (event) await goToMonth(startOfMonth(parseISODate(event.date)));
       } else if (target.hasAttribute('data-toggle-past')) {
         state.showPast = !state.showPast;
         render();

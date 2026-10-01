@@ -1198,11 +1198,9 @@ details[open] > :not(summary),
 .fade-up { animation: fade-up 220ms var(--ag-ease-out); }
 details > summary::marker { transition: color 150ms; }
 
-/* Month to month: the grid slides in from the side you are heading to. */
-.slide-from-right { animation: slide-from-right 240ms var(--ag-ease-out); }
-.slide-from-left { animation: slide-from-left 240ms var(--ag-ease-out); }
-@keyframes slide-from-right { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
-@keyframes slide-from-left { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: none; } }
+/* Month to month (see goToMonth in app.js): the grid slides out one side and
+   the next month in from the other; nothing outside the page area shows. */
+#main { overflow-x: clip; }
 
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-new(root) { animation: none; }
@@ -1215,9 +1213,7 @@ details > summary::marker { transition: color 150ms; }
   .gate-card > *,
   details[open] > :not(summary),
   .intro:not([hidden]),
-  .fade-up,
-  .slide-from-right,
-  .slide-from-left { animation: none !important; }
+  .fade-up { animation: none !important; }
   .menu-btn .bar,
   .btn, .chip, .theme-btn, .menu-btn, .agenda-open, .close, .who { transition: none !important; }
   .btn:active, .chip:active, .theme-btn:active, .menu-btn:active, .close:active, .agenda-card:active {
