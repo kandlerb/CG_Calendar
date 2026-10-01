@@ -1101,3 +1101,13 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
   .gate-card { padding: var(--space-4); }
   .gate-tabs .btn { white-space: nowrap; padding-left: var(--space-2); padding-right: var(--space-2); font-size: 14px; }
 }
+
+/* --- weather --- */
+.when.weather { color: var(--ink-muted); }
+.weather-credit { font-size: 11px; color: var(--ink-muted); margin-left: 4px; white-space: nowrap; }
+.chip .chip-weather { flex: 0 0 auto; font-size: 11px; line-height: 1; }
+.agenda-card .when.weather { margin-top: -2px; }
+.subscribe-heading { font-size: 15px; margin: 18px 0 6px; }
+.steps-list { margin: 0 0 12px; padding-left: 20px; display: grid; gap: 6px; font-size: 13px; color: var(--ink-muted); }
+.steps-list a { color: var(--accent); }
+.steps-intro { margin-bottom: 4px !important; }

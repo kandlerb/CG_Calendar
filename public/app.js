@@ -24,6 +24,7 @@ import {
   shapeEvents,
   upcoming,
 } from './lib/model.js';
+import { createWeather, weatherLine } from './lib/weather.js';
 import {
   LIMITS,
   MAX_REPEAT_WEEKS,
@@ -87,7 +88,7 @@ function eventFromHash(hash) {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-export function startApp(data, { onError } = {}) {
+export function startApp(data, { onError, weather = createWeather() } = {}) {
   const storedView = remembered.read(VIEW_KEY);
   const state = {
     viewer: null,
@@ -97,6 +98,9 @@ export function startApp(data, { onError } = {}) {
     // An event link opened before signing in. Held here so the event opens
     // once the person is in, rather than being lost behind the sign-in screen.
     pendingEvent: eventFromHash(location.hash),
+    // Event id → forecast, for events in the next 16 days. Filled in after
+    // the calendar draws, so a slow weather service never holds it up.
+    weather: new Map(),
     events: [],
     loading: true,
     // Someone who has picked a view keeps it. Everyone else gets the one that
@@ -160,6 +164,48 @@ export function startApp(data, { onError } = {}) {
       isOrganizer: Boolean(state.viewer?.isOrganizer),
       todayKey: isoDate(new Date()),
     });
+    loadWeather();
+  }
+
+  /**
+   * Fetches forecasts for the events in reach, then fills them in where the
+   * page shows them. The calendar is already drawn by then; an open dialog is
+   * patched in place rather than redrawn, so nothing half-typed is lost.
+   */
+  async function loadWeather() {
+    const events = state.events;
+    let found;
+    try {
+      found = await weather.forEvents(events, isoDate(new Date()));
+    } catch {
+      return;
+    }
+    if (events !== state.events || state.gate) return;
+    state.weather = found;
+    if (!state.loading) render();
+    for (const node of document.querySelectorAll('[data-weather-for]')) {
+      const event = eventById(node.dataset.weatherFor);
+      node.innerHTML = event ? weatherHtml(event, { credit: node.hasAttribute('data-weather-credit') }) : '';
+      node.hidden = !node.innerHTML;
+    }
+  }
+
+  function weatherHtml(event, { credit = false } = {}) {
+    const f = state.weather.get(event.id);
+    if (!f) return '';
+    const line = esc(weatherLine(f, event.startTime ? formatTime(event.startTime) : ''));
+    return credit
+      ? `${line} <a class="weather-credit" href="https://open-meteo.com/" target="_blank"
+           rel="noopener noreferrer">Forecast: Open-Meteo</a>`
+      : line;
+  }
+
+  /** The weather slot in the event dialog and on Upcoming cards. */
+  function weatherSlot(event, { credit = false } = {}) {
+    const html = weatherHtml(event, { credit });
+    return `<p class="when weather" data-weather-for="${esc(event.id)}"${credit ? ' data-weather-credit' : ''}${
+      html ? '' : ' hidden'
+    }>${html}</p>`;
   }
 
   const eventById = (id) => state.events.find((e) => e.id === id);
@@ -313,7 +359,9 @@ export function startApp(data, { onError } = {}) {
       <div class="next-up-text">
         <span class="next-up-label">Next up</span>
         <strong>${esc(next.title)}</strong>
-        <span class="next-up-when">${esc(formatShortDate(next.date))}${esc(time)}</span>
+        <span class="next-up-when">${esc(formatShortDate(next.date))}${esc(time)}${
+          state.weather.get(next.id) ? ` · ${esc(weatherLine(state.weather.get(next.id)).split(' · ')[0])}` : ''
+        }</span>
         <span class="next-up-status${summary.done ? ' done' : ''}">${esc(
           summary.done ? 'All set' : summary.text.replace(/\.$/, ''),
         )}</span>
@@ -381,12 +429,16 @@ export function startApp(data, { onError } = {}) {
       wanted ? 'Needs a host.' : '',
       event.mine.length ? 'You signed up.' : '',
     ].filter(Boolean);
-    const tip = [`${event.title}, ${time}`, event.location, ...status].filter(Boolean).join('. ');
+    const forecast = state.weather.get(event.id);
+    const tip = [`${event.title}, ${time}`, event.location, forecast ? weatherLine(forecast) : '', ...status]
+      .filter(Boolean)
+      .join('. ');
     return `<button type="button" class="chip${wanted ? ' needs-host' : ''}${
       event.mine.length ? ' mine' : ''
     }${event.past ? ' past' : ''}${event.cancelled ? ' cancelled' : ''}" data-event="${esc(event.id)}" title="${esc(tip)}">
       <span class="dot" aria-hidden="true"></span>
       <span class="chip-time">${esc(time)}</span>
+      ${forecast ? `<span class="chip-weather" aria-hidden="true">${forecast.at?.icon ?? forecast.icon}</span>` : ''}
       <span class="chip-title">${esc(event.title)}</span>
       ${status.length ? `<span class="sr-only">${esc(status.join(' '))}</span>` : ''}
     </button>`;
@@ -444,6 +496,7 @@ export function startApp(data, { onError } = {}) {
   function agendaCardHtml(event) {
     return `<article class="agenda-card${event.past ? ' past' : ''}${event.cancelled ? ' cancelled' : ''}">
       <p class="when">${esc(formatLongDate(event.date))} · ${esc(formatTimeRange(event))}</p>
+      ${weatherSlot(event)}
       <h3><button type="button" class="agenda-open" data-event="${esc(event.id)}">${esc(event.title)}</button></h3>
       ${event.location ? `<p class="where">${esc(event.location)}</p>` : ''}
       ${badgeHtml(eventBadges(event))}
@@ -875,25 +928,41 @@ export function startApp(data, { onError } = {}) {
    * Subscribing to the calendar from Apple Calendar, Google Calendar or
    * Outlook. Opened from the Subscribe button in the header.
    */
+  /** Google's "add this calendar?" page for a feed. Works on a computer only. */
+  const googleAddUrl = (webcal) => `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcal)}`;
+  const APP_TITLE = document.title || 'Community Group Calendar';
+
   function subscribeModalHtml() {
     const links = data.feedLinks?.() ?? null;
     let feed = '<p class="hint">Your calendar link is not ready yet. Reload the page and try again.</p>';
     if (links?.webcal) {
       feed = `<p class="hint">Subscribe once and every event appears in your phone's calendar, with the
           address, who is hosting, and who is bringing what. It keeps itself up to date.</p>
+        <h3 class="subscribe-heading">iPhone, Mac or Outlook</h3>
         <div class="form-actions">
           <a class="btn primary" href="${esc(links.webcal)}">Subscribe in Apple Calendar or Outlook</a>
-          <button type="button" class="btn" data-copy-feed>Copy link for Google Calendar</button>
         </div>
-        <details class="steps">
-          <summary>How to add it to Google Calendar</summary>
-          <ol>
-            <li>Tap <strong>Copy link for Google Calendar</strong> above.</li>
-            <li>On a computer, open <a href="https://calendar.google.com/calendar/r/settings/addbyurl"
-                rel="noreferrer noopener" target="_blank">Google Calendar → Add calendar → From URL</a>.</li>
-            <li>Paste the link and choose <strong>Add calendar</strong>. It appears on your phone too.</li>
-          </ol>
-        </details>
+        <h3 class="subscribe-heading">Google Calendar (Android phones too)</h3>
+        <p class="hint"><strong>This has to be done once on a computer.</strong> The Google Calendar app
+          on a phone has no way to add a calendar from a link. Once you add it on a computer, it shows up
+          in the Google Calendar app on your phone by itself.</p>
+        <div class="form-actions">
+          <a class="btn" href="${esc(googleAddUrl(links.webcal))}" target="_blank"
+             rel="noreferrer noopener">Add to Google Calendar</a>
+          <button type="button" class="btn" data-copy-feed>Copy link</button>
+        </div>
+        <p class="hint steps-intro">Step by step, on a computer:</p>
+        <ol class="steps-list">
+          <li>On a computer, open this calendar and sign in.</li>
+          <li>Open <strong>Subscribe</strong> and click <strong>Add to Google Calendar</strong>. Google
+            Calendar opens and asks whether to add the calendar; click <strong>Add</strong>.</li>
+          <li>If that button doesn't work, click <strong>Copy link</strong>, then in Google Calendar go to
+            <a href="https://calendar.google.com/calendar/r/settings/addbyurl" rel="noreferrer noopener"
+            target="_blank">Other calendars → + → From URL</a>, paste the link and click
+            <strong>Add calendar</strong>.</li>
+          <li>On your phone, open the Google Calendar app. If the calendar doesn't appear, tap ☰ →
+            <strong>Settings</strong>, find "${esc(APP_TITLE)}" and make sure <strong>Sync</strong> is on.</li>
+        </ol>
         <p class="hint">Changes reach Apple Calendar and Outlook within about an hour. Google Calendar
           checks less often — it can take up to a day. Tapping the link in an event opens it here; the
           first time from inside Outlook you may need to sign in.</p>
@@ -1262,10 +1331,10 @@ export function startApp(data, { onError } = {}) {
         <div>
           <h2 id="modal-title">${esc(event.title)}</h2>
           <p class="when">${esc(formatLongDate(event.date))} · ${esc(formatTimeRange(event))}</p>
+          ${weatherSlot(event, { credit: true })}
           ${event.location ? `<p class="when">${esc(event.location)}</p>` : ''}
           ${
-            // Only the host's name: their address is shared with the group
-            // separately, never on this page.
+            // The host's address, if they gave one, is on their sign-up below.
             event.hosts.length
               ? `<p class="when">Hosted by ${esc(event.hosts.map((h) => h.name).join(', '))}</p>`
               : ''

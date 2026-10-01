@@ -41,7 +41,35 @@ async function comeBackToTab(page) {
   });
 }
 
+/** A made-up 16-day forecast from today, so tests never wait on the real service. */
+function fakeForecast() {
+  const pad = (n) => String(n).padStart(2, '0');
+  const now = new Date();
+  const days = Array.from({ length: 16 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  });
+  const hours = days.flatMap((day) => Array.from({ length: 24 }, (_, h) => `${day}T${pad(h)}:00`));
+  return {
+    daily: {
+      time: days,
+      weather_code: days.map(() => 0),
+      temperature_2m_max: days.map(() => 74),
+      temperature_2m_min: days.map(() => 58),
+      precipitation_probability_max: days.map(() => 10),
+    },
+    hourly: {
+      time: hours,
+      temperature_2m: hours.map(() => 70),
+      weather_code: hours.map(() => 0),
+      precipitation_probability: hours.map(() => 10),
+    },
+  };
+}
+
 test.beforeEach(async ({ page }) => {
+  await page.route('https://api.open-meteo.com/**', (route) => route.fulfill({ json: fakeForecast() }));
+  await page.route('https://geocoding-api.open-meteo.com/**', (route) => route.fulfill({ json: { results: [] } }));
   await page.clock.install();
   // Keep the "How to use" panel out of the way.
   await page.addInitScript(() => localStorage.setItem('cg_intro_dismissed', '1'));
@@ -546,4 +574,20 @@ test('a service worker makes each visit ask for the latest files', async ({ page
   await page.reload();
   expect(await page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
   await expect(page.locator('#who')).toContainText('Demo member');
+});
+
+test('an event in the next two weeks shows its forecast', async ({ page }) => {
+  await page.goto(`/demo.html#event=${DINNER}`);
+  const weather = dialog(page).locator('.when.weather');
+  await expect(weather).toContainText('Clear, 70° at 6:30 PM');
+  await expect(weather).toContainText('High 74°, low 58°');
+  await expect(weather.getByRole('link', { name: 'Forecast: Open-Meteo' })).toBeVisible();
+});
+
+test('the calendar works the same when the weather service is down', async ({ page }) => {
+  await page.unroute('https://api.open-meteo.com/**');
+  await page.route('https://api.open-meteo.com/**', (route) => route.abort());
+  await page.goto(`/demo.html#event=${DINNER}`);
+  await expect(dialog(page)).toContainText('Community Group — Week 1');
+  await expect(dialog(page).locator('.when.weather')).toBeHidden();
 });

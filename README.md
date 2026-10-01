@@ -228,8 +228,11 @@ code too if that matters.
 Each member finds it under the **Subscribe** button at the top of the calendar:
 
 - **Apple Calendar / Outlook**: one tap (a `webcal://` link).
-- **Google Calendar**: copy the link, then **Other calendars → From URL** on a
-  computer. It shows up on their phone as well.
+- **Google Calendar**: has to be added once **on a computer** — the Google
+  Calendar app on Android and iPhone cannot add a calendar from a link.
+  **Add to Google Calendar** opens Google's "add this calendar?" page; failing
+  that, copy the link and use **Other calendars → + → From URL**. Once added
+  on a computer, it appears in the Google Calendar app on their phone.
 
 Each event in the feed has:
 
@@ -248,6 +251,18 @@ Microsoft's servers.
 The link is personal. **Reset my link** makes a new one and turns the old one
 off. Apple Calendar and Outlook pick up changes within about an hour; Google
 Calendar checks on its own schedule, which can take up to a day.
+
+## Weather
+
+Events in the next 16 days show the forecast for their town: the conditions
+and temperature at the start time, the day's high and low, and the chance of
+rain — in the event, on Upcoming cards, as an icon on the month grid, and in
+**Next up**. The town comes from the event's location or the host's address
+("…, Evans, GA"); anything without a town in it uses Augusta, GA
+(`HOME_TOWN` in `public/lib/weather.js`). Forecasts come from
+[Open-Meteo](https://open-meteo.com), which is free for non-commercial use and
+needs no key. If it is down, the calendar works the same without the weather.
+The subscription feed does not include the weather.
 
 ## Using it
 
