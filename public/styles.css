@@ -1200,7 +1200,8 @@ details > summary::marker { transition: color 150ms; }
 
 /* Month to month (see goToMonth in app.js): the grid slides out one side and
    the next month in from the other; nothing outside the page area shows. */
-#main { overflow-x: clip; }
+#main { overflow-x: clip; position: relative; }
+.calendar-outgoing { pointer-events: none; }
 
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-new(root) { animation: none; }

@@ -613,6 +613,7 @@ test('stepping months slides the grid and brings the empty-month note in after',
   await page.goto('/demo.html');
   const note = page.locator('#view-note');
   const period = page.locator('#period');
+  await expect(period).toHaveText(/\d{4}/); // drawn, not the blank placeholder
   const startMonth = await period.textContent();
 
   // Forward to a month with no events: the note arrives once the grid settles.
@@ -632,8 +633,20 @@ test('stepping months slides the grid and brings the empty-month note in after',
 test('stepping months with reduced motion changes the month at once', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/demo.html');
+  await expect(page.locator('#period')).toHaveText(/\d{4}/);
   const before = await page.locator('#period').textContent();
   await page.locator('#next').click();
   expect(await page.locator('#period').textContent()).not.toBe(before);
   expect(await page.evaluate(() => document.getElementById('calendar').getAnimations().length)).toBe(0);
+});
+
+test('the old month slides off while the new one slides on, side by side', async ({ page }) => {
+  await page.goto('/demo.html');
+  await expect(page.locator('#period')).toHaveText(/\d{4}/);
+  await page.locator('#next').click();
+  // Mid-slide there are two grids on screen: a still copy of the old month
+  // on its way out, and the real grid with the new month coming in.
+  await expect(page.locator('.calendar-outgoing')).toHaveCount(1);
+  await expect(page.locator('.calendar-outgoing')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.getElementById('calendar').getAnimations().length)).toBe(0);
 });

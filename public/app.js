@@ -882,11 +882,11 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
   /**
    * Moves the month grid to `month`, as a little sequence:
    *   1. a "No events in …" note slides up and away, and the grid grows back;
-   *   2. the grid slides out toward the side you are leaving by;
-   *   3. the new month slides in from the other side;
-   *   4. if it has no events, its note slides down from the top, nudging the
-   *      grid down to make room.
-   * Clicking again mid-way skips straight to the newest month and slides it in.
+   *   2. the old month slides fully off one side while the new month slides
+   *      on from the other, side by side, like turning a page;
+   *   3. if the new month has no events, its note slides down from the top,
+   *      nudging the grid down to make room.
+   * Clicking again mid-way picks up from whatever is on screen.
    */
   async function goToMonth(month) {
     const from = state.cursor;
@@ -895,6 +895,7 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
     state.expandedDay = null;
     const animate = direction !== 0 && state.view === 'month' && !lessMotion() && el.calendar?.animate;
     if (!animate) {
+      clearSlide();
       state.monthMove = null;
       render();
       return;
@@ -904,25 +905,27 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
     const move = { noteWanted: false };
     state.monthMove = move;
     const current = () => state.monthMove === move;
-    for (const node of [el.calendar, el.viewNote]) node?.getAnimations().forEach((a) => a.cancel());
+    clearSlide();
+    el.viewNote?.getAnimations().forEach((a) => a.cancel());
 
-    if (!interrupted) {
-      if (el.viewNote && !el.viewNote.hidden) {
-        await noteAway();
-        if (!current()) return;
-      }
-      await play(el.calendar, [
-        { transform: 'none', opacity: 1 },
-        { transform: `translateX(${direction * -12}%)`, opacity: 0 },
-      ], 170, 'ease-in');
+    if (!interrupted && el.viewNote && !el.viewNote.hidden) {
+      await noteAway();
       if (!current()) return;
     }
 
-    render(); // draws the new month; the note, if any, is held back
-    await play(el.calendar, [
-      { transform: `translateX(${direction * 12}%)`, opacity: 0 },
-      { transform: 'none', opacity: 1 },
-    ], 220, 'cubic-bezier(0.22, 1, 0.36, 1)');
+    // A still copy of the month on screen slides away while the real grid,
+    // redrawn with the new month, slides in beside it.
+    const outgoing = snapshotCalendar();
+    render(); // the note, if the new month has one, is held back
+    const gap = 24;
+    const away = `translateX(calc(${-direction * 100}% - ${direction * gap}px))`;
+    const enter = `translateX(calc(${direction * 100}% + ${direction * gap}px))`;
+    const timing = [420, 'cubic-bezier(0.65, 0, 0.35, 1)'];
+    await Promise.all([
+      play(outgoing, [{ transform: 'none' }, { transform: away }], ...timing),
+      play(el.calendar, [{ transform: enter }, { transform: 'none' }], ...timing),
+    ]);
+    outgoing?.remove();
     if (!current()) return;
 
     state.monthMove = null;
@@ -930,6 +933,33 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
       el.viewNote.hidden = false;
       await noteIn();
     }
+  }
+
+  /** A non-interactive copy of the grid, laid exactly over it. */
+  function snapshotCalendar() {
+    const grid = el.calendar;
+    if (!grid || grid.hidden) return null;
+    const copy = grid.cloneNode(true);
+    copy.removeAttribute('id');
+    copy.classList.add('calendar-outgoing');
+    copy.setAttribute('aria-hidden', 'true');
+    copy.inert = true;
+    Object.assign(copy.style, {
+      position: 'absolute',
+      top: `${grid.offsetTop}px`,
+      left: `${grid.offsetLeft}px`,
+      width: `${grid.offsetWidth}px`,
+      height: `${grid.offsetHeight}px`,
+      margin: '0',
+    });
+    grid.parentElement.append(copy);
+    return copy;
+  }
+
+  /** Ends any slide still running: the old copy goes, the grid stands still. */
+  function clearSlide() {
+    document.querySelectorAll('.calendar-outgoing').forEach((node) => node.remove());
+    el.calendar?.getAnimations().forEach((a) => a.cancel());
   }
 
   function play(node, keyframes, duration, easing) {
