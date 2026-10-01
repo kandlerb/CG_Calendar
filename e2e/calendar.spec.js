@@ -456,9 +456,15 @@ test('the theme switches without animating for anyone who asked for less motion'
   await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
   await page.goto('/demo.html');
   await page.getByRole('button', { name: 'Dark mode' }).click();
-  // No view transition and no fade: the theme is applied straight away.
+  // No cross-fade: the theme is applied straight away.
   expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
-  expect(await page.evaluate(() => document.documentElement.classList.contains('theme-blending'))).toBe(false);
+  expect(
+    await page.evaluate(() =>
+      document.documentElement
+        .getAnimations({ subtree: true })
+        .some((a) => String(a.effect?.pseudoElement ?? '').startsWith('::view-transition')),
+    ),
+  ).toBe(false);
 });
 
 test('opening a sign-up form inside an open event does not replay the dialog animation', async ({ page }) => {
@@ -653,19 +659,20 @@ test('the old month slides off while the new one slides on, side by side', async
   await expect.poll(() => page.evaluate(() => document.getElementById('calendar').getAnimations().length)).toBe(0);
 });
 
-test('switching theme blends the colours rather than snapping', async ({ page }) => {
+test('switching theme cross-fades the whole page as one picture', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' });
   await page.goto('/demo.html');
-  const background = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-  const light = await background();
+  const blending = () =>
+    page.evaluate(() =>
+      document.documentElement
+        .getAnimations({ subtree: true })
+        .some((a) => String(a.effect?.pseudoElement ?? '').startsWith('::view-transition')),
+    );
   await page.getByRole('button', { name: 'Dark mode' }).click();
-  await expect(page.locator('html')).toHaveClass(/theme-blending/);
-  await page.waitForTimeout(300);
-  const midway = await background();
-  await expect(page.locator('html')).not.toHaveClass(/theme-blending/);
-  const dark = await background();
-  expect(midway).not.toBe(light);
-  expect(midway).not.toBe(dark);
+  // The browser captures the old picture first, then starts the fade.
+  await expect.poll(blending, { intervals: [20] }).toBe(true);
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect.poll(blending).toBe(false);
 });
 
 test('Upcoming slides in beside the month, and back', async ({ page }) => {

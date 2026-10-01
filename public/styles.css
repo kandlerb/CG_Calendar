@@ -1119,21 +1119,12 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
    has asked their device for less motion gets none of it (see the block at
    the end). */
 
-/* Light and dark: while theme.js has .theme-blending on the page, every
-   colour eases from the old theme to the new one. */
-.theme-blending,
-.theme-blending *,
-.theme-blending *::before,
-.theme-blending *::after {
-  transition:
-    background-color 700ms ease-in-out,
-    color 700ms ease-in-out,
-    border-color 700ms ease-in-out,
-    outline-color 700ms ease-in-out,
-    box-shadow 700ms ease-in-out,
-    text-decoration-color 700ms ease-in-out,
-    fill 700ms ease-in-out,
-    stroke 700ms ease-in-out !important;
+/* Light and dark: theme.js cross-fades a picture of the old theme into the
+   new one, evenly and slowly. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 700ms;
+  animation-timing-function: ease-in-out;
 }
 /* The sun and moon turn in as they swap. */
 .theme-btn svg { animation: icon-turn 420ms var(--ag-ease-out); }
@@ -1201,6 +1192,8 @@ details > summary::marker { transition: color 150ms; }
 .slide-outgoing { pointer-events: none; }
 
 @media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) { animation: none; }
   .theme-btn svg,
   .topbar.menu-open .topbar-actions,
   .modal-root:not([hidden]),

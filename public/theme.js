@@ -50,22 +50,21 @@
   });
 
   /**
-   * Changes theme by blending: every colour on the page eases from the old
-   * theme to the new one over most of a second. Nothing moves for anyone who
-   * has asked their device for less motion.
+   * Changes theme by blending: the browser takes a picture of the page in the
+   * old theme and cross-fades it into the new one, so every pixel — text,
+   * backgrounds, borders — moves evenly from one colour to the other at the
+   * same pace. (Fading each element's own colours instead left inherited text
+   * lagging behind and snapping at the end.) Browsers without that just
+   * switch. Nothing moves for anyone who has asked their device for less
+   * motion.
    */
-  var BLEND_MS = 700;
-  var blendTimer = null;
   function switchTo(next) {
-    var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (!still) {
-      root.classList.add('theme-blending');
-      clearTimeout(blendTimer);
-      blendTimer = setTimeout(function () {
-        root.classList.remove('theme-blending');
-      }, BLEND_MS + 50);
+    function change() {
+      apply(next);
+      sync();
     }
-    apply(next);
-    sync();
+    var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (still || !document.startViewTransition) return change();
+    document.startViewTransition(change);
   }
 })();
