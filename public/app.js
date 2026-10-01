@@ -943,26 +943,31 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
           <a class="btn primary" href="${esc(links.webcal)}">Subscribe in Apple Calendar or Outlook</a>
         </div>
         <h3 class="subscribe-heading">Google Calendar (Android phones too)</h3>
-        <p class="hint"><strong>This has to be done once on a computer.</strong> The Google Calendar app
-          on a phone has no way to add a calendar from a link. Once you add it on a computer, it shows up
-          in the Google Calendar app on your phone by itself.</p>
+        <p class="hint">Do this once <strong>on a computer</strong>; it then shows up in the Google
+          Calendar app on your phone.</p>
         <div class="form-actions">
           <a class="btn" href="${esc(googleAddUrl(links.webcal))}" target="_blank"
              rel="noreferrer noopener">Add to Google Calendar</a>
-          <button type="button" class="btn" data-copy-feed>Copy link</button>
         </div>
-        <p class="hint steps-intro">Step by step, on a computer:</p>
-        <ol class="steps-list">
-          <li>On a computer, open this calendar and sign in.</li>
-          <li>Open <strong>Subscribe</strong> and click <strong>Add to Google Calendar</strong>. Google
-            Calendar opens and asks whether to add the calendar; click <strong>Add</strong>.</li>
-          <li>If that button doesn't work, click <strong>Copy link</strong>, then in Google Calendar go to
-            <a href="https://calendar.google.com/calendar/r/settings/addbyurl" rel="noreferrer noopener"
-            target="_blank">Other calendars → + → From URL</a>, paste the link and click
-            <strong>Add calendar</strong>.</li>
-          <li>On your phone, open the Google Calendar app. If the calendar doesn't appear, tap ☰ →
-            <strong>Settings</strong>, find "${esc(APP_TITLE)}" and make sure <strong>Sync</strong> is on.</li>
-        </ol>
+        <details class="steps">
+          <summary>Step-by-step help</summary>
+          <p class="hint">The Google Calendar app on a phone has no way to add a calendar from a link.
+            Once you add it on a computer, it shows up in the app on your phone by itself.</p>
+          <ol class="steps-list">
+            <li>On a computer, open this calendar and sign in.</li>
+            <li>Open <strong>Subscribe</strong> and click <strong>Add to Google Calendar</strong>. Google
+              Calendar opens and asks whether to add the calendar; click <strong>Add</strong>.</li>
+            <li>If that button doesn't work, click <strong>Copy link</strong> below, then in Google Calendar
+              go to <a href="https://calendar.google.com/calendar/r/settings/addbyurl" rel="noreferrer noopener"
+              target="_blank">Other calendars → + → From URL</a>, paste the link and click
+              <strong>Add calendar</strong>.</li>
+            <li>On your phone, open the Google Calendar app. If the calendar doesn't appear, tap ☰ →
+              <strong>Settings</strong>, find "${esc(APP_TITLE)}" and make sure <strong>Sync</strong> is on.</li>
+          </ol>
+          <div class="form-actions">
+            <button type="button" class="btn" data-copy-feed>Copy link</button>
+          </div>
+        </details>
         <p class="hint">Changes reach Apple Calendar and Outlook within about an hour. Google Calendar
           checks less often — it can take up to a day. Tapping the link in an event opens it here; the
           first time from inside Outlook you may need to sign in.</p>

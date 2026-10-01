@@ -1111,3 +1111,5 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .steps-list { margin: 0 0 12px; padding-left: 20px; display: grid; gap: 6px; font-size: 13px; color: var(--ink-muted); }
 .steps-list a { color: var(--accent); }
 .steps-intro { margin-bottom: 4px !important; }
+.steps .steps-list { margin-top: 8px; }
+.steps .form-actions { margin-top: 4px; }
