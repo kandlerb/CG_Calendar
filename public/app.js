@@ -760,6 +760,7 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
     render();
     await reload();
     state.loading = false;
+    watchForChanges();
     renderIntro();
     render();
     // An event link opened before signing in: put it back in the address and
@@ -773,6 +774,7 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
 
   /** A write found no session: back to the sign-in screen, keeping the event open. */
   function signedOut(err) {
+    stopWatchingForChanges();
     if (state.modal?.eventId) state.pendingEvent = state.modal.eventId;
     state.viewer = null;
     showGate('signin', { notice: { tone: 'error', text: err.message } });
@@ -1876,6 +1878,7 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
   }
 
   async function signOutEverywhere() {
+    stopWatchingForChanges();
     state.viewer = await data.signOut();
     state.events = [];
     closeModal();
@@ -2208,9 +2211,15 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
   // Someone else may have signed up while this tab sat open. A quick glance at
   // another app is not worth a reload, so only refresh after a while.
   const STALE_AFTER_MS = 30_000;
-  document.addEventListener('visibilitychange', async () => {
-    if (document.visibilityState !== 'visible' || state.loading || state.gate || !state.viewer) return;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
     if (Date.now() - state.loadedAt < STALE_AFTER_MS) return;
+    quietRefresh();
+  });
+
+  /** Brings the calendar up to date without disturbing what the person is doing. */
+  async function quietRefresh() {
+    if (state.loading || state.gate || !state.viewer) return;
     try {
       await reload();
       render();
@@ -2222,7 +2231,25 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
     } catch {
       /* the next action will surface the problem */
     }
-  });
+  }
+
+  // Live updates: when anyone changes the calendar, every open page hears
+  // about it and refreshes. A burst of changes (an event saved with its food
+  // slots, say) is one refresh, a moment after the last of them.
+  let stopWatching = null;
+  let liveTimer = null;
+  function watchForChanges() {
+    if (stopWatching || !data.watch) return;
+    stopWatching = data.watch(() => {
+      clearTimeout(liveTimer);
+      liveTimer = setTimeout(quietRefresh, 400);
+    });
+  }
+  function stopWatchingForChanges() {
+    clearTimeout(liveTimer);
+    stopWatching?.();
+    stopWatching = null;
+  }
 
   // A link to another event pasted into this tab changes only the hash.
   window.addEventListener('hashchange', () => {

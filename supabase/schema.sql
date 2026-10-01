@@ -798,3 +798,69 @@ grant execute on function public.list_members()                    to authentica
 grant execute on function public.set_member_removed(uuid, boolean) to authenticated;
 -- The feed function calls this with the public key; the token is the check.
 grant execute on function public.feed_data(uuid)                   to anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Live updates
+-- ---------------------------------------------------------------------------
+--
+-- One row that changes whenever an event, food slot or sign-up does. Open
+-- pages watch it through Supabase Realtime and reload the calendar the usual
+-- way when it ticks, so a sign-up shows up for everyone without a reload. The
+-- row carries no data of its own: what each person then sees is still decided
+-- by the rules above (contact details stay with organizers, and so on).
+
+create table if not exists public.calendar_changes (
+  id         boolean primary key default true check (id),
+  changed_at timestamptz not null default now()
+);
+insert into public.calendar_changes (id) values (true) on conflict (id) do nothing;
+
+alter table public.calendar_changes enable row level security;
+revoke all on public.calendar_changes from anon, authenticated;
+grant select on public.calendar_changes to authenticated;
+
+drop policy if exists calendar_changes_members on public.calendar_changes;
+create policy calendar_changes_members on public.calendar_changes
+  for select using ((select public.is_member()));
+
+create or replace function public.note_calendar_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.calendar_changes set changed_at = now() where id;
+  return null;
+end;
+$$;
+
+revoke all on function public.note_calendar_change() from public, anon, authenticated;
+
+drop trigger if exists events_note_change on public.events;
+create trigger events_note_change
+  after insert or update or delete on public.events
+  for each statement execute function public.note_calendar_change();
+
+drop trigger if exists food_slots_note_change on public.food_slots;
+create trigger food_slots_note_change
+  after insert or update or delete on public.food_slots
+  for each statement execute function public.note_calendar_change();
+
+drop trigger if exists signups_note_change on public.signups;
+create trigger signups_note_change
+  after insert or update or delete on public.signups
+  for each statement execute function public.note_calendar_change();
+
+-- Realtime only sends changes for tables in its publication. A plain
+-- PostgreSQL (the schema tests) has no such publication, so this is guarded.
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+     and not exists (
+       select 1 from pg_publication_tables
+        where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'calendar_changes'
+     ) then
+    alter publication supabase_realtime add table public.calendar_changes;
+  end if;
+end $$;

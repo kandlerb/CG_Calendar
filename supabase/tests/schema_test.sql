@@ -593,6 +593,40 @@ select tests_become(:organizer::uuid);
 delete from public.events where id = :'hosted_id'::uuid;
 
 -- ---------------------------------------------------------------------------
+-- Live updates
+-- ---------------------------------------------------------------------------
+
+reset role;
+update public.calendar_changes set changed_at = '2000-01-01';
+select tests_become(:organizer::uuid);
+select public.save_event('{"title":"Live","event_date":"2026-11-01"}'::jsonb, '[]'::jsonb) as live_id \gset
+reset role;
+select tests_assert(
+  (select changed_at from public.calendar_changes) > '2000-01-01',
+  'changing an event ticks the live-update row');
+
+update public.calendar_changes set changed_at = '2000-01-01';
+select tests_become(:bob::uuid);
+insert into public.signups (event_id, kind, name, item) values (:'live_id'::uuid, 'food', 'Bob', 'Pie');
+reset role;
+select tests_assert(
+  (select changed_at from public.calendar_changes) > '2000-01-01',
+  'a sign-up ticks the live-update row');
+
+select tests_become(:bob::uuid);
+select tests_assert((select count(*) from public.calendar_changes) = 1, 'a member can watch the live-update row');
+select tests_become(:stranger::uuid);
+select tests_assert((select count(*) from public.calendar_changes) = 0, 'an account that has not joined cannot');
+select tests_become(null);
+select tests_expect_error($$select * from public.calendar_changes$$, 'permission denied',
+  'a signed-out visitor cannot');
+select tests_become(:bob::uuid);
+select tests_expect_error($$update public.calendar_changes set changed_at = now()$$, 'permission denied',
+  'nobody can tick the live-update row by hand');
+select tests_become(:organizer::uuid);
+delete from public.events where id = :'live_id'::uuid;
+
+-- ---------------------------------------------------------------------------
 -- Table privileges
 -- ---------------------------------------------------------------------------
 --

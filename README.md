@@ -87,6 +87,10 @@ Under **Authentication**:
   tiers such as [Resend](https://resend.com) or [Brevo](https://www.brevo.com)
   are plenty. Resend needs a domain you own; Brevo can send from a single
   verified address. Send yourself a reset and check it isn't landing in spam.
+- **Emails → Templates → Reset Password**: set the subject to
+  `Reset your Community Group Calendar password` and paste in
+  `supabase/email-templates/reset-password.html`, so the email looks like the
+  calendar rather than Supabase's plain default.
 
 ### 4. Add yourself as an organizer
 
@@ -264,6 +268,25 @@ rain — in the event, on Upcoming cards, as an icon on the month grid, and in
 needs no key. If it is down, the calendar works the same without the weather.
 The subscription feed does not include the weather.
 
+## Live updates
+
+An open calendar updates itself: when anyone adds or changes an event or a
+sign-up, everyone else's page reloads the calendar within a second or two, no
+refresh needed. It works through one table, `calendar_changes`, whose single
+row ticks whenever events, food slots or sign-ups change; pages watch it with
+Supabase Realtime and then load the calendar the usual way, so what each
+person sees is still decided by the same rules. Only members can watch it.
+Running `schema.sql` sets it all up, including adding the table to Realtime.
+
+## On phones
+
+- **Install it.** In Safari, Share → **Add to Home Screen**; in Chrome, ⋮ →
+  **Add to Home screen** (or **Install app**). It then opens full-screen from
+  its own icon, like an app.
+- **Swipe** left or right on the month grid to change months.
+- **Link previews.** Pasting the link into a text or group chat shows a card
+  with the calendar's name and picture (`public/og-image.png`).
+
 ## Using it
 
 1. An organizer adds events — title, date, time, and the food slots to fill.
@@ -429,6 +452,7 @@ public/                the website — this is what GitHub Pages serves
   lib/feed.js          builds the calendar subscription (.ics)
 supabase/schema.sql    tables, row level security, sign-up rules, members
 supabase/functions/calendar-feed/  the Edge Function that serves each feed
+supabase/email-templates/  the password-reset email, to paste into Supabase
 supabase/tests/        those rules, tested against a real PostgreSQL
 test/                  unit tests for the browser modules
 e2e/                   browser tests, run against demo.html

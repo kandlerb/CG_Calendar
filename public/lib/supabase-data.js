@@ -344,6 +344,20 @@ export function createSupabaseData(client, { siteUrl = '', feedBase = '', initia
       await write(() => client.rpc('set_member_removed', { p_user_id: userId, p_removed: removed }));
     },
 
+    /**
+     * Calls `onChange` whenever anyone changes the calendar, until the
+     * returned function is called. It is told only that something changed —
+     * the page then reloads the usual way, through the usual rules.
+     */
+    watch(onChange) {
+      if (!client.channel) return () => {};
+      const channel = client
+        .channel('calendar-changes')
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'calendar_changes' }, () => onChange())
+        .subscribe();
+      return () => client.removeChannel?.(channel);
+    },
+
     // --- the calendar ------------------------------------------------------
 
     /**
