@@ -16,7 +16,7 @@ import { buildCalendar } from '../../../public/lib/feed.js';
 
 // Where "Sign up or see details" links point. Set SITE_URL on the function to
 // move the calendar somewhere else.
-const SITE_URL = Deno.env.get('SITE_URL') ?? 'https://kandlerb.github.io/CG_Calendar/';
+const SITE_URL = Deno.env.get('SITE_URL') ?? 'https://calendar.kandlerbaker.com/';
 const CALENDAR_NAME = Deno.env.get('CALENDAR_NAME') ?? 'Community Group Calendar';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';

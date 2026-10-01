@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { buildCalendar, escapeText, foldLine } from '../public/lib/feed.js';
 
-const SITE = 'https://kandlerb.github.io/CG_Calendar/';
+const SITE = 'https://calendar.kandlerbaker.com/';
 const NOW = new Date(Date.UTC(2026, 8, 30, 12, 0, 0));
 
 function row(overrides = {}) {

@@ -79,7 +79,7 @@ Under **Authentication**:
 - **Sign In / Providers → Anonymous sign-ins**: **off**. The calendar used to
   rely on them; they can no longer see anything.
 - **URL Configuration**: set **Site URL** to the calendar's address (for this
-  repository, `https://kandlerb.github.io/CG_Calendar/`) and add the same
+  repository, `https://calendar.kandlerbaker.com/`) and add the same
   address under **Redirect URLs**. Password-reset emails link back there.
 - **Emails → SMTP Settings**: connect an email service. Supabase's built-in
   sender only delivers to the members of your Supabase team, so without this
@@ -125,7 +125,7 @@ in each member's feed link is what the function checks. The function builds
 the feed with `public/lib/feed.js`, so deploy from the repository root, where
 that file is reachable.
 
-It links events back to `https://kandlerb.github.io/CG_Calendar/`. For a
+It links events back to `https://calendar.kandlerbaker.com/`. For a
 calendar anywhere else, set a `SITE_URL` secret on the function
 (**Edge Functions → Secrets**), and `CALENDAR_NAME` to change the name
 calendar apps show.
@@ -177,10 +177,15 @@ Create Pages site failed. Error: Resource not accessible by integration
 
 Once it's set, push to `main`. The Tests workflow runs every test and, only
 if they all pass, its last job publishes `public/` and prints the URL in the
-Actions log — usually
-`https://kandlerb.github.io/CG_Calendar/`. That's the link you send your
-group. (**Actions → Deploy to GitHub Pages → Run workflow** redeploys by hand,
-without waiting for tests.)
+Actions log. That's the link you send your group. (**Actions → Deploy to
+GitHub Pages → Run workflow** redeploys by hand, without waiting for tests.)
+
+This calendar lives at `https://calendar.kandlerbaker.com/`: a CNAME record
+for `calendar` pointing at `kandlerb.github.io` (in GoDaddy), the same name
+under **Settings → Pages → Custom domain**, and **Enforce HTTPS** ticked. The
+old `kandlerb.github.io/CG_Calendar/` address redirects there. If you move it
+again, also change the Site URL and Redirect URLs in Supabase, the `og:` tags
+in `public/index.html`, and `SITE_URL` in the calendar-feed function.
 
 ## Finishing the switch to accounts
 
@@ -190,7 +195,7 @@ the detail):
 
 1. **Confirm email → off.**
 2. **Anonymous sign-ins → off.**
-3. **Site URL and Redirect URLs →** `https://kandlerb.github.io/CG_Calendar/`.
+3. **Site URL and Redirect URLs →** `https://calendar.kandlerbaker.com/`.
 4. **SMTP →** connect an email service, so password resets reach people.
 
 Then run `node scripts/verify-supabase.mjs` with your organizer login and
