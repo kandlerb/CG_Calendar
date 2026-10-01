@@ -539,3 +539,11 @@ async function signInAsOrganizerFromMenu(page) {
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.locator('#new-event-btn')).toBeVisible();
 }
+
+test('a service worker makes each visit ask for the latest files', async ({ page }) => {
+  await page.goto('/demo.html');
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.reload();
+  expect(await page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
+  await expect(page.locator('#who')).toContainText('Demo member');
+});

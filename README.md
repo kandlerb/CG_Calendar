@@ -352,6 +352,12 @@ delete from auth.users u
 the SQL editor; it is safe to run again. If a change to the rules comes with a
 change to the page, let the new page deploy first, then run the SQL.
 
+**Updates reach phones on the next reload.** GitHub Pages lets browsers keep
+the page's files for 10 minutes, which used to hide a new release. `public/sw.js`
+is a tiny service worker that makes each visit ask GitHub whether a file
+changed; it stores nothing itself. The very first visit after this was added
+can still show a copy up to 10 minutes old; every visit after that is current.
+
 **Backups**: Supabase's dashboard has **Database → Backups**. For a copy you
 hold yourself, the table editor exports any table to CSV.
 

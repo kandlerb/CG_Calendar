@@ -95,6 +95,10 @@
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
     <script type="module">
+      // See sw.js: makes each visit check for a newer release instead of
+      // reusing the browser's saved copy for up to 10 minutes.
+      if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+
       import { APP_NAME, SUPABASE_ANON_KEY, SUPABASE_URL } from './config.js';
       import { fatalNotice, setupNotice } from './lib/setup-notice.js';
 
