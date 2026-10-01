@@ -440,15 +440,32 @@ test('the theme toggle switches light and dark, and remembers the choice', async
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  expect(await background()).not.toBe(light);
+  await expect.poll(background).not.toBe(light);
 
   // Kept across a reload, and applied before the page draws.
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
 
+  // The switch animates, so the colour lands a moment after the tap.
   await toggle.click();
-  expect(await background()).toBe(light);
+  await expect.poll(background).toBe(light);
+});
+
+test('the theme switches without animating for anyone who asked for less motion', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
+  await page.goto('/demo.html');
+  await page.getByRole('button', { name: 'Dark mode' }).click();
+  // No view transition and no fade: the theme is applied straight away.
+  expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
+  expect(await page.evaluate(() => document.documentElement.classList.contains('theme-fading'))).toBe(false);
+});
+
+test('opening a sign-up form inside an open event does not replay the dialog animation', async ({ page }) => {
+  await page.goto(`/demo.html#event=${DINNER}`);
+  await expect(dialog(page)).toHaveClass(/entering/);
+  await dialog(page).getByRole('button', { name: 'Sign up to host' }).click();
+  await expect(dialog(page)).not.toHaveClass(/entering/);
 });
 
 test('with no choice made, the theme follows the device', async ({ page }) => {

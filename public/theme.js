@@ -46,7 +46,33 @@
     } catch (e) {
       /* the choice lasts until the page is reloaded */
     }
-    apply(next);
-    sync();
+    switchTo(next, button);
   });
+
+  /**
+   * Changes theme with a little motion: where the browser can, the new theme
+   * spreads out in a circle from the button; elsewhere the colours fade
+   * across. Nothing moves for anyone who has asked their device for less
+   * motion.
+   */
+  function switchTo(next, button) {
+    function change() {
+      apply(next);
+      sync();
+    }
+    var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (still) return change();
+    if (document.startViewTransition) {
+      var box = button.getBoundingClientRect();
+      root.style.setProperty('--theme-x', box.left + box.width / 2 + 'px');
+      root.style.setProperty('--theme-y', box.top + box.height / 2 + 'px');
+      document.startViewTransition(change);
+      return;
+    }
+    root.classList.add('theme-fading');
+    change();
+    setTimeout(function () {
+      root.classList.remove('theme-fading');
+    }, 400);
+  }
 })();

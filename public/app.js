@@ -855,11 +855,41 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
     renderModal();
   }
 
-  function closeModal() {
-    state.modal = null;
+  const lessMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+
+  /**
+   * Plays a one-off CSS animation on a node: the class goes on, and comes off
+   * when the animation ends, so the next call can play it again.
+   */
+  function animateOnce(node, className) {
+    if (!node || lessMotion()) return;
+    node.classList.remove(className);
+    void node.offsetWidth; // restart the animation if it was mid-way
+    node.classList.add(className);
+    node.addEventListener('animationend', () => node.classList.remove(className), { once: true });
+  }
+
+  // A closing dialog fades out for a moment before it is cleared away.
+  let closingTimer = null;
+  function finishClose() {
+    closingTimer = null;
+    if (state.modal) return;
+    el.modalRoot.classList.remove('closing');
     el.modalRoot.hidden = true;
     el.modalRoot.innerHTML = '';
+  }
+
+  function closeModal() {
+    const wasOpen = !el.modalRoot.hidden && el.modalRoot.innerHTML !== '';
+    state.modal = null;
     document.body.classList.remove('modal-open');
+    clearTimeout(closingTimer);
+    if (wasOpen && !lessMotion()) {
+      el.modalRoot.classList.add('closing');
+      closingTimer = setTimeout(finishClose, 140);
+    } else {
+      finishClose();
+    }
     if (location.hash.startsWith('#event=')) history.replaceState(null, '', location.pathname + location.search);
     // Without this the keyboard lands back at the top of the page every time.
     const back = returnFocusTo?.node?.isConnected
@@ -895,7 +925,14 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
       }
       html = eventModalHtml(event, modal);
     }
-    el.modalRoot.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">${html}</div>`;
+    // Only a dialog that is newly opening animates in; redrawing one that is
+    // already open (opening a sign-up form inside it, say) does not.
+    const entering = el.modalRoot.hidden || el.modalRoot.classList.contains('closing');
+    clearTimeout(closingTimer);
+    el.modalRoot.classList.remove('closing');
+    el.modalRoot.innerHTML = `<div class="modal${
+      entering ? ' entering' : ''
+    }" role="dialog" aria-modal="true" aria-labelledby="modal-title">${html}</div>`;
     el.modalRoot.hidden = false;
     document.body.classList.add('modal-open');
     modalSnapshot = formSnapshot();
@@ -1734,15 +1771,18 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
         state.viewChosen = true;
         remembered.write(VIEW_KEY, state.view);
         render();
+        animateOnce(state.view === 'month' ? el.calendar : el.agenda, 'fade-up');
       } else if (target.id === 'prev' || target.id === 'next') {
         state.cursor = addMonths(state.cursor, target.id === 'prev' ? -1 : 1);
         state.expandedDay = null;
         render();
+        animateOnce(el.calendar, target.id === 'prev' ? 'slide-from-left' : 'slide-from-right');
         await loadEarlierIfNeeded();
       } else if (target.id === 'today') {
         state.cursor = startOfMonth(new Date());
         state.expandedDay = null;
         render();
+        animateOnce(el.calendar, 'fade-up');
       } else if (target.id === 'help-btn') {
         toggleIntro();
       } else if (target.hasAttribute('data-dismiss-intro')) {

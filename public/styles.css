@@ -668,8 +668,8 @@ main {
   width: min(640px, 100%);
   padding: var(--space-6);
   border: 1px solid var(--border);
-  animation: modal-in var(--ag-duration-base) var(--ag-ease-out);
 }
+.modal.entering { animation: modal-in var(--ag-duration-base) var(--ag-ease-out); }
 @keyframes modal-in {
   from { opacity: 0; transform: translateY(8px) scale(0.98); }
   to { opacity: 1; transform: none; }
@@ -905,7 +905,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .skeleton-grid span { animation: none; }
   .btn.primary:hover, .agenda-card:hover { transform: none; }
-  .modal, .toast { animation-name: fade-in; animation-duration: var(--ag-duration-instant); }
+  .modal.entering, .toast { animation-name: fade-in; animation-duration: var(--ag-duration-instant); }
 }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
@@ -1113,3 +1113,114 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 .steps-intro { margin-bottom: 4px !important; }
 .steps .steps-list { margin-top: 8px; }
 .steps .form-actions { margin-top: 4px; }
+
+/* --- motion ---------------------------------------------------------------
+   Short and quiet: things settle into place rather than fly about. Anyone who
+   has asked their device for less motion gets none of it (see the block at
+   the end). */
+
+/* Light and dark: the new theme spreads out from the toggle button. */
+::view-transition-old(root),
+::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+::view-transition-new(root) { animation: theme-reveal 480ms var(--ag-ease-standard); }
+@keyframes theme-reveal {
+  from { clip-path: circle(0 at var(--theme-x, 50%) var(--theme-y, 0)); }
+  to { clip-path: circle(150vmax at var(--theme-x, 50%) var(--theme-y, 0)); }
+}
+/* Browsers without that get a cross-fade of the colours instead. */
+.theme-fading,
+.theme-fading *,
+.theme-fading *::before,
+.theme-fading *::after {
+  transition:
+    background-color 320ms var(--ag-ease-standard),
+    color 320ms var(--ag-ease-standard),
+    border-color 320ms var(--ag-ease-standard),
+    fill 320ms var(--ag-ease-standard) !important;
+}
+/* The sun and moon turn in as they swap. */
+.theme-btn svg { animation: icon-turn 420ms var(--ag-ease-out); }
+@keyframes icon-turn {
+  from { opacity: 0; transform: rotate(-90deg) scale(0.6); }
+  to { opacity: 1; transform: none; }
+}
+
+/* A press sinks a little under the finger. */
+.btn, .chip, .theme-btn, .menu-btn, .agenda-open, .close, .who {
+  transition-property: background-color, color, box-shadow, transform, opacity;
+  transition-duration: var(--ag-duration-fast);
+  transition-timing-function: var(--ag-ease-out);
+}
+.btn:active:not(:disabled),
+.chip:active,
+.theme-btn:active,
+.menu-btn:active,
+.close:active { transform: scale(0.96); }
+.btn.primary:active:not(:disabled) { transform: scale(0.97); box-shadow: none; }
+.agenda-card:active { transform: scale(0.99); }
+
+/* The menu drops open from the button, and ☰ turns into ×. */
+@media (max-width: 900px) {
+  .topbar.menu-open .topbar-actions {
+    transform-origin: top right;
+    animation: menu-in 180ms var(--ag-ease-out);
+  }
+}
+@keyframes menu-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+.menu-btn .bar {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 220ms var(--ag-ease-out), opacity 150ms var(--ag-ease-standard);
+}
+.menu-btn[aria-expanded="true"] .bar-top { transform: translateY(5px) rotate(45deg); }
+.menu-btn[aria-expanded="true"] .bar-mid { opacity: 0; transform: scaleX(0.2); }
+.menu-btn[aria-expanded="true"] .bar-bottom { transform: translateY(-5px) rotate(-45deg); }
+
+/* Dialogs: the backdrop fades in with the dialog, and both fade out on close. */
+.modal-root:not([hidden]) { animation: fade-in var(--ag-duration-base) var(--ag-ease-standard); }
+.modal-root.closing { animation: fade-out 140ms var(--ag-ease-standard) forwards; pointer-events: none; }
+.modal-root.closing .modal { animation: modal-out 140ms var(--ag-ease-standard) forwards; }
+@keyframes fade-out { to { opacity: 0; } }
+@keyframes modal-out { to { opacity: 0; transform: translateY(6px) scale(0.98); } }
+
+/* Things that open inside a page settle in from just below. */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+form.signup.boxed,
+.gate-card > *,
+details[open] > :not(summary),
+.intro:not([hidden]),
+.fade-up { animation: fade-up 220ms var(--ag-ease-out); }
+details > summary::marker { transition: color 150ms; }
+
+/* Month to month: the grid slides in from the side you are heading to. */
+.slide-from-right { animation: slide-from-right 240ms var(--ag-ease-out); }
+.slide-from-left { animation: slide-from-left 240ms var(--ag-ease-out); }
+@keyframes slide-from-right { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+@keyframes slide-from-left { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-new(root) { animation: none; }
+  .theme-btn svg,
+  .topbar.menu-open .topbar-actions,
+  .modal-root:not([hidden]),
+  .modal-root.closing,
+  .modal-root.closing .modal,
+  form.signup.boxed,
+  .gate-card > *,
+  details[open] > :not(summary),
+  .intro:not([hidden]),
+  .fade-up,
+  .slide-from-right,
+  .slide-from-left { animation: none !important; }
+  .menu-btn .bar,
+  .btn, .chip, .theme-btn, .menu-btn, .agenda-open, .close, .who { transition: none !important; }
+  .btn:active, .chip:active, .theme-btn:active, .menu-btn:active, .close:active, .agenda-card:active {
+    transform: none !important;
+  }
+}
