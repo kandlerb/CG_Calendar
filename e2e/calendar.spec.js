@@ -89,6 +89,60 @@ test('a visitor signs up for a food slot and sees it marked as theirs', async ({
   await expect(dialog(page).locator('.yours')).toContainText('Lasagna');
 });
 
+test('a member can say they are not attending, then that they are coming after all', async ({ page }) => {
+  await openEvent(page, DINNER);
+  const box = dialog(page).locator('.attendance');
+  await expect(box).toContainText('Not attending: Dev.');
+  await box.getByRole('button', { name: 'Not attending' }).click();
+
+  await expect(box).toContainText("You said you're not attending.");
+  await expect(box).toContainText('Not attending: Dev and you.');
+  const back = box.getByRole('button', { name: "I'm coming after all" });
+  await expect(back).toHaveAttribute('aria-pressed', 'true');
+
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Upcoming' }).click();
+  await expect(page.locator('.agenda-card').filter({ hasText: 'Week 1' }).locator('.badge.mine')).toHaveText(
+    'Not attending',
+  );
+
+  await openEvent(page, DINNER);
+  await box.getByRole('button', { name: "I'm coming after all" }).click();
+  await expect(box.getByRole('button', { name: 'Not attending' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(box).not.toContainText('and you');
+});
+
+test('saying you are not attending asks before dropping your sign-up, and signing up again clears it', async ({
+  page,
+}) => {
+  await openEvent(page, DINNER);
+  await slotGroup(page, 'Main dish').getByRole('button', { name: 'Sign up' }).click();
+  await page.getByLabel('Your name').fill('Jordan');
+  await page.getByLabel('What you will bring').fill('Lasagna');
+  await page.getByRole('button', { name: 'Add sign-up' }).click();
+  await expect(slotGroup(page, 'Main dish').locator('.person.mine')).toContainText('Lasagna');
+
+  const box = dialog(page).locator('.attendance');
+  page.once('dialog', (d) => {
+    expect(d.message()).toContain('Lasagna');
+    d.dismiss();
+  });
+  await box.getByRole('button', { name: 'Not attending' }).click();
+  await expect(slotGroup(page, 'Main dish').locator('.person.mine')).toContainText('Lasagna');
+
+  page.once('dialog', (d) => d.accept());
+  await box.getByRole('button', { name: 'Not attending' }).click();
+  await expect(box).toContainText("You said you're not attending.");
+  await expect(slotGroup(page, 'Main dish').locator('.person.mine')).toHaveCount(0);
+  await expect(slotGroup(page, 'Side dish')).toContainText('Marisol');
+
+  await slotGroup(page, 'Dessert').getByRole('button', { name: 'Sign up' }).click();
+  await page.getByLabel('What you will bring').fill('Brownies');
+  await page.getByRole('button', { name: 'Add sign-up' }).click();
+  await expect(box.getByRole('button', { name: 'Not attending' })).toBeVisible();
+  await expect(dialog(page).locator('.yours')).toContainText('Brownies');
+});
+
 test('a name or dish of only spaces is refused with a plain message', async ({ page }) => {
   await openEvent(page, DINNER);
   await slotGroup(page, 'Main dish').getByRole('button', { name: 'Sign up' }).click();
@@ -263,6 +317,7 @@ test('a past event can be read but not signed up for', async ({ page }) => {
   await expect(dialog(page).locator('.modal-head')).toContainText('Hosted by The Parkers');
   await expect(dialog(page).locator('[data-open-form]')).toHaveCount(0);
   await expect(dialog(page).locator('[data-cancel-signup]')).toHaveCount(0);
+  await expect(dialog(page).locator('[data-set-attending]')).toHaveCount(0);
 });
 
 test('removing a slot people signed up for asks first', async ({ page }) => {

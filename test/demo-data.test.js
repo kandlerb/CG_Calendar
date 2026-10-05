@@ -220,6 +220,44 @@ describe('demo data source', () => {
     await assert.rejects(() => data.updateSignup(marisol.id, { item: 'Nothing' }), /not allowed/);
   });
 
+  it('lets a member say they are not attending, and then that they are coming after all', async () => {
+    const event = await firstEvent();
+    await data.setNotAttending(event.id, true);
+    let [after] = await data.loadEvents();
+    assert.ok(after.absences.some((a) => a.userId === data.viewer().id && a.name === 'Demo member'));
+
+    await data.setNotAttending(event.id, true);
+    [after] = await data.loadEvents();
+    assert.equal(after.absences.filter((a) => a.userId === data.viewer().id).length, 1);
+
+    await data.setNotAttending(event.id, false);
+    [after] = await data.loadEvents();
+    assert.ok(!after.absences.some((a) => a.userId === data.viewer().id));
+  });
+
+  it('takes your sign-ups off an event you are not attending, and clears the mark when you sign up again', async () => {
+    const event = await firstEvent();
+    const slot = event.foodSlots[0];
+    await data.addSignup({ eventId: event.id, slotId: slot.id, kind: 'food', name: 'Me', item: 'Rolls' });
+    await data.setNotAttending(event.id, true);
+    let [after] = await data.loadEvents();
+    assert.equal(after.signups.filter((s) => s.createdBy === data.viewer().id).length, 0);
+    assert.ok(after.signups.some((s) => s.name === 'Marisol'), "other people's sign-ups stay");
+
+    await data.addSignup({ eventId: event.id, slotId: slot.id, kind: 'food', name: 'Me', item: 'Rolls' });
+    [after] = await data.loadEvents();
+    assert.ok(!after.absences.some((a) => a.userId === data.viewer().id));
+  });
+
+  it('refuses a not-attending mark from someone who has not joined, and on a cancelled event', async () => {
+    const event = await firstEvent();
+    await data.signIn('org@example.com', 'x');
+    await data.setCancelled(event.id, true);
+    await assert.rejects(() => data.setNotAttending(event.id, true), /cancelled/);
+    await data.signOut();
+    await assert.rejects(() => data.setNotAttending(event.id, true), /join the group/);
+  });
+
   it('lets an organizer cancel an event, which then takes no sign-ups', async () => {
     const event = await firstEvent();
     await assert.rejects(() => data.setCancelled(event.id, true), /not allowed/);

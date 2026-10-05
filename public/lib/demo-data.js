@@ -55,6 +55,7 @@ function seed() {
             createdBy: 'someone-else',
           },
         ],
+        absences: [{ id: 'demo-absence-dev', eventId: dinner, userId: 'demo-dev', name: 'Dev' }],
       },
       {
         id: cookout,
@@ -73,6 +74,7 @@ function seed() {
           { id: 'demo-slot-drinks', label: 'Drinks', needed: 2, position: 2 },
         ],
         signups: [],
+        absences: [],
       },
       // Already happened, so the demo shows how a past event reads.
       {
@@ -111,6 +113,7 @@ function seed() {
             createdBy: 'someone-else',
           },
         ],
+        absences: [],
       },
     ],
   };
@@ -261,7 +264,7 @@ export function createDemoData({ buildFeed = null } = {}) {
     async saveEvent(event, slots) {
       requireOrganizer();
       const existing = event.id ? find(event.id) : null;
-      const target = existing ?? { id: uid(), signups: [] };
+      const target = existing ?? { id: uid(), signups: [], absences: [] };
       Object.assign(target, {
         title: event.title,
         description: event.description,
@@ -331,6 +334,8 @@ export function createDemoData({ buildFeed = null } = {}) {
         address: signup.address ?? '',
         createdBy: me,
       });
+      // Signing up is coming, as in the database.
+      event.absences = event.absences.filter((a) => a.userId !== me);
     },
 
     async updateSignup(id, patch) {
@@ -348,6 +353,18 @@ export function createDemoData({ buildFeed = null } = {}) {
       for (const event of state.events) {
         event.signups = event.signups.filter((s) => s.id !== id);
       }
+    },
+
+    async setNotAttending(eventId, notAttending) {
+      requireMember();
+      const event = find(eventId);
+      if (!event) throw new Error('That event no longer exists.');
+      event.absences = event.absences.filter((a) => a.userId !== me);
+      if (!notAttending) return;
+      if (event.cancelled) throw new Error('This event has been cancelled.');
+      // Nobody should be counted on for a dish they have said they will not bring.
+      event.signups = event.signups.filter((s) => s.createdBy !== me);
+      event.absences.push({ id: uid(), eventId: event.id, userId: me, name: viewer.name || 'Member' });
     },
   };
 }

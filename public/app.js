@@ -448,7 +448,7 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
     const status = [
       event.cancelled ? 'Cancelled.' : event.past ? 'Past event.' : '',
       wanted ? 'Needs a host.' : '',
-      event.mine.length ? 'You signed up.' : '',
+      event.mine.length ? 'You signed up.' : event.notAttending ? 'You are not attending.' : '',
     ].filter(Boolean);
     const forecast = state.weather.get(event.id);
     const tip = [`${event.title}, ${time}`, event.location, forecast ? weatherLine(forecast) : '', ...status]
@@ -1536,6 +1536,37 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
     </div>`;
   }
 
+  /**
+   * "Not attending", and the way back: pressing it again says you are coming
+   * after all. Who else has said they are not coming is listed for the host's
+   * head count. Nothing is shown on an event that is over or called off,
+   * unless someone did say so while it was on.
+   */
+  function attendanceHtml(event) {
+    const others = event.absences.filter((a) => !a.isMine).map((a) => a.name);
+    const list = others.length
+      ? `<p class="attendance-list">Not attending: ${esc(others.join(', '))}${
+          event.notAttending ? ' and you' : ''
+        }.</p>`
+      : '';
+    if (!event.canAnswer) return list ? `<div class="attendance">${list}</div>` : '';
+    return `<div class="attendance${event.notAttending ? ' away' : ''}">
+      <div>
+        ${
+          event.notAttending
+            ? `<p class="attendance-text">You said you're not attending.</p>`
+            : `<p class="attendance-text">Can't make it? Let the group know.</p>`
+        }
+        ${list}
+      </div>
+      <button type="button" class="btn"
+              data-set-attending="${esc(event.id)}" data-not-attending="${event.notAttending ? '' : '1'}"
+              aria-pressed="${event.notAttending ? 'true' : 'false'}">${
+                event.notAttending ? "I'm coming after all" : 'Not attending'
+              }</button>
+    </div>`;
+  }
+
   function eventModalHtml(event, modal) {
     const summary = eventSummary(event);
     return `
@@ -1563,6 +1594,7 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
             )}.</p>`
           : ''
       }
+      ${attendanceHtml(event)}
       ${hostSectionHtml(event, modal)}
       ${foodSectionHtml(event, modal)}
       <div class="section footer-actions">
@@ -2106,6 +2138,23 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
         closeModal();
         await refresh({ keepModal: false });
         toast('Event deleted.');
+      } else if (target.dataset.setAttending) {
+        const event = eventById(target.dataset.setAttending);
+        const notAttending = target.dataset.notAttending === '1';
+        if (notAttending && event?.mine.length) {
+          const what = event.mine.map((s) => (s.kind === 'host' ? 'hosting' : s.item || 'food')).join(', ');
+          if (
+            !window.confirm(
+              `You signed up for: ${what}.\n\nSaying you're not attending removes that sign-up too. Continue?`,
+            )
+          ) {
+            return;
+          }
+        }
+        await data.setNotAttending(target.dataset.setAttending, notAttending);
+        if (state.modal) state.modal.form = null;
+        await refresh();
+        toast(notAttending ? "Marked as not attending. Press again if you're coming." : "You're coming after all.");
       } else if (target.dataset.cancelSignup) {
         const name = target.dataset.signupName || 'this';
         if (!window.confirm(`Remove ${name} from this event?`)) return;

@@ -397,6 +397,75 @@ select tests_assert(
   'an organizer can remove any sign-up');
 
 -- ---------------------------------------------------------------------------
+-- Not attending
+-- ---------------------------------------------------------------------------
+
+select tests_become(:bob::uuid);
+select public.set_not_attending(:'event_id'::uuid, true);
+select tests_assert(
+  (select count(*) from public.absences where event_id = :'event_id'::uuid and user_id = :bob::uuid) = 1,
+  'a member can say they are not attending');
+select tests_assert(
+  (select name from public.absences where user_id = :bob::uuid) = 'bob',
+  'the mark carries the member''s name');
+select tests_assert(
+  (select count(*) from public.signups where created_by = :bob::uuid and event_id = :'event_id'::uuid) = 0,
+  'saying you are not attending takes your sign-ups off the event');
+
+select public.set_not_attending(:'event_id'::uuid, true);
+select tests_assert(
+  (select count(*) from public.absences where user_id = :bob::uuid) = 1,
+  'saying it twice leaves one mark');
+
+select tests_become(:anna::uuid);
+select tests_assert(
+  (select count(*) from public.absences) = 1,
+  'members can see who is not attending');
+select tests_expect_error(
+  format($$insert into public.absences (event_id, user_id, name) values (%L, %L, 'Anna')$$, :'event_id', :anna),
+  'permission denied',
+  'the table cannot be written directly');
+select tests_expect_error(
+  format($$delete from public.absences where user_id = %L$$, :bob),
+  'permission denied',
+  'nobody can remove someone else''s mark directly');
+
+select tests_become(:bob::uuid);
+select public.set_not_attending(:'event_id'::uuid, false);
+select tests_assert(
+  (select count(*) from public.absences where user_id = :bob::uuid) = 0,
+  'pressing the button again says you are coming after all');
+select public.set_not_attending(:'event_id'::uuid, false);
+select tests_assert(
+  (select count(*) from public.absences where user_id = :bob::uuid) = 0,
+  'saying you are coming when you never said otherwise is harmless');
+
+-- Signing up is coming: it clears the mark on its own.
+select public.set_not_attending(:'event_id'::uuid, true);
+insert into public.signups (event_id, slot_id, kind, name, item)
+values (:'event_id'::uuid, :'side_id'::uuid, 'food', 'Bob', 'Green beans');
+select tests_assert(
+  (select count(*) from public.absences where user_id = :bob::uuid) = 0,
+  'signing up again removes the not-attending mark');
+
+select tests_become(:stranger::uuid);
+select tests_expect_error(
+  format($$select public.set_not_attending(%L, true)$$, :'event_id'),
+  'Only members',
+  'an account that has not joined cannot mark itself as not attending');
+select tests_become(null);
+select tests_expect_error(
+  format($$select public.set_not_attending(%L, true)$$, :'event_id'),
+  'permission denied',
+  'a signed-out visitor cannot call set_not_attending()');
+
+select tests_become(:anna::uuid);
+select tests_expect_error(
+  $$select public.set_not_attending('00000000-0000-0000-0000-000000000000', true)$$,
+  'no longer exists',
+  'an event that is gone cannot be marked');
+
+-- ---------------------------------------------------------------------------
 -- Editing an event
 -- ---------------------------------------------------------------------------
 
@@ -518,6 +587,19 @@ select (public.my_membership()->>'feed_token') as anna_token \gset
 select tests_become(null);
 select public.feed_data(:'anna_token'::uuid) as feed \gset
 select tests_assert(:'feed'::jsonb->'member'->>'display_name' = 'Anna Smith', 'the feed knows whose it is');
+
+-- The feed says who is not coming, and whether that is you.
+select tests_become(:bob::uuid);
+select public.set_not_attending(:'hosted_id'::uuid, true);
+select tests_become(null);
+select public.feed_data(:'anna_token'::uuid) as feed \gset
+select tests_assert(
+  (select count(*) from jsonb_array_elements(:'feed'::jsonb->'events') e,
+                        jsonb_array_elements(e->'absences') a
+    where e->>'id' = :'hosted_id' and a->>'name' = 'bob' and (a->>'mine')::boolean = false) = 1,
+  'the feed lists who is not attending');
+reset role;
+delete from public.absences where user_id = :bob::uuid;
 select tests_assert(
   exists (select 1 from jsonb_array_elements(:'feed'::jsonb->'events') e
            where e->>'title' = 'Hosted dinner'
@@ -720,6 +802,10 @@ select tests_expect_error(
   format($$insert into public.signups (event_id, kind, name, item) values (%L, 'food', 'Bob', 'Rolls')$$, :'event_id'),
   'has been cancelled',
   'a cancelled event takes no new sign-ups');
+select tests_expect_error(
+  format($$select public.set_not_attending(%L, true)$$, :'event_id'),
+  'has been cancelled',
+  'a cancelled event cannot be marked as not attending');
 
 -- Saving the event's details does not quietly bring it back.
 select tests_become(:organizer::uuid);

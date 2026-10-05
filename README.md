@@ -211,6 +211,7 @@ them were anonymous, so they can't edit them any more; an organizer still can.
 | --- | --- | --- | --- |
 | See the calendar and who signed up | no — sign-in screen only | yes | yes |
 | Sign up to host or bring food | no | yes | yes |
+| Say they are not attending, and change their mind | no | yes | yes |
 | See the phone number or email someone left | — | only their own | yes |
 | Edit or remove **their own** sign-up, until the event is over | — | yes, from any device | yes |
 | Subscribe from their phone's calendar, or add one event | — | yes | yes |
@@ -250,8 +251,8 @@ Each event in the feed has:
 - the **location** in the address field calendar apps put on a map — the
   organizer's location, or the host's address if the event needed a host,
 - a description that opens with a link to the event on the calendar, then
-  what you signed up for, who is hosting, who is bringing what, and what is
-  still needed,
+  what you signed up for, who is hosting, who is bringing what, what is
+  still needed, and who has said they are not attending,
 - everything from the last three months onward.
 
 Contact details are never put in the feed; it ends up on Google's, Apple's or
@@ -313,6 +314,11 @@ Running `schema.sql` sets it all up, including adding the table to Realtime.
    "Anna — Lasagna, Bob — Chili" rather than a bare count.
 5. Anyone can **Edit** or **Remove** their own sign-up through the day of the
    event. After that the event is read-only, except to organizers.
+6. Someone who can't make it taps **Not attending**. The event then lists
+   them under *Not attending*, so the host has a head count, and their
+   sign-ups for that event are removed (the page asks first). The button
+   becomes **I'm coming after all**, which takes it back; signing up for
+   something also takes it back.
 
 If an organizer removes a food slot that people signed up for, the editor
 names them and asks first; their sign-ups are kept, listed under "Other food".
@@ -341,7 +347,8 @@ the event, open it, sign up, subscribe. Closing it is remembered, and the
   opens on. The choice is remembered.
 - Each event opens with one line stating what is unfilled, such as *Still
   needed: a host and 2 food slots.*
-- Your own sign-ups are marked **You**, on any device you sign in on.
+- Your own sign-ups are marked **You**, on any device you sign in on. An
+  event you said you are not attending is badged **Not attending**.
 - A month with no events says so and links to the month of the next event.
 - In **Month**, a key under the grid explains the chip colours; a lavender
   chip still needs a host.

@@ -5,6 +5,7 @@
 --
 -- What it sets up:
 --   * events, food_slots, signups  — the calendar itself
+--   * absences                     — who has said they are not attending an event
 --   * members                      — everyone who joined with the invite code;
 --                                    only they can see the calendar
 --   * group_settings               — the invite code, readable by organizers only
@@ -107,6 +108,21 @@ alter table public.signups add constraint signups_address_check check (char_leng
 create index if not exists signups_event_idx on public.signups (event_id);
 create index if not exists signups_slot_idx on public.signups (slot_id);
 
+-- Who has said they are not attending. One row per person and event, added
+-- and removed through set_not_attending() below, so a "Not attending" button
+-- can be pressed again to say they are coming after all. The name is copied
+-- in so the page can show it: the member list itself is not readable.
+create table if not exists public.absences (
+  id         uuid primary key default gen_random_uuid(),
+  event_id   uuid not null references public.events (id) on delete cascade,
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  name       text not null check (char_length(name) between 1 and 80),
+  created_at timestamptz not null default now(),
+  unique (event_id, user_id)
+);
+
+create index if not exists absences_event_idx on public.absences (event_id);
+
 -- Everyone who may see the calendar. A row is added by join_group() when
 -- someone enters the invite code; an organizer removing a member stamps
 -- removed_at rather than deleting the row, so the same account cannot simply
@@ -186,6 +202,7 @@ alter table public.organizers enable row level security;
 alter table public.events     enable row level security;
 alter table public.food_slots enable row level security;
 alter table public.signups    enable row level security;
+alter table public.absences   enable row level security;
 alter table public.members        enable row level security;
 alter table public.group_settings enable row level security;
 alter table public.join_attempts  enable row level security;
@@ -199,7 +216,7 @@ alter table public.join_attempts  enable row level security;
 -- visitor INSERT and TRUNCATE, and TRUNCATE is not filtered by row level
 -- security. Clear that first, so the grants below are the whole picture.
 revoke all on public.organizers, public.events, public.food_slots, public.signups,
-  public.members, public.group_settings, public.join_attempts
+  public.absences, public.members, public.group_settings, public.join_attempts
   from anon, authenticated;
 
 grant select on public.organizers, public.events, public.food_slots
@@ -294,6 +311,15 @@ create policy signups_update_own on public.signups
 drop policy if exists signups_delete_own on public.signups;
 create policy signups_delete_own on public.signups
   for delete using ((created_by = (select auth.uid()) and (select public.is_member())) or (select public.is_organizer()));
+
+-- Not attending: members may see who has said so. Marking yourself, and
+-- changing your mind, go through set_not_attending(); nothing is written to
+-- the table directly, so there is no grant for it.
+grant select on public.absences to authenticated;
+
+drop policy if exists absences_read_members on public.absences;
+create policy absences_read_members on public.absences
+  for select using ((select public.is_member()));
 
 -- ---------------------------------------------------------------------------
 -- Contact details
@@ -504,6 +530,90 @@ drop trigger if exists signups_touch_event on public.signups;
 create trigger signups_touch_event
   after insert or update or delete on public.signups
   for each row execute function public.touch_event_on_signup();
+
+-- Who is not coming is in the feed too, so it counts as a change as well.
+drop trigger if exists absences_touch_event on public.absences;
+create trigger absences_touch_event
+  after insert or update or delete on public.absences
+  for each row execute function public.touch_event_on_signup();
+
+-- ---------------------------------------------------------------------------
+-- Not attending
+-- ---------------------------------------------------------------------------
+--
+-- Saying you are not attending takes your sign-ups off the event with it:
+-- nobody should be counted on for a dish they have said they will not bring.
+-- Pressing the button again removes the mark; signing up again removes it
+-- too (see the trigger below), so the two can never contradict each other.
+create or replace function public.set_not_attending(p_event_id uuid, p_not_attending boolean)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user  uuid := auth.uid();
+  v_event public.events%rowtype;
+  v_name  text;
+begin
+  if v_user is null or not public.is_member() then
+    raise exception 'Only members can do that.';
+  end if;
+
+  select * into v_event from public.events where id = p_event_id for update;
+  if not found then
+    raise exception 'That event no longer exists.';
+  end if;
+
+  if not p_not_attending then
+    delete from public.absences where event_id = p_event_id and user_id = v_user;
+    return;
+  end if;
+
+  if v_event.cancelled then
+    raise exception 'This event has been cancelled.';
+  end if;
+
+  select coalesce(nullif(o.name, ''), m.display_name) into v_name
+    from public.members m
+    left join public.organizers o on o.user_id = m.user_id
+   where m.user_id = v_user;
+  if v_name is null then
+    select coalesce(nullif(o.name, ''), split_part(u.email, '@', 1)) into v_name
+      from auth.users u
+      left join public.organizers o on o.user_id = u.id
+     where u.id = v_user;
+  end if;
+
+  delete from public.signups where event_id = p_event_id and created_by = v_user;
+  insert into public.absences (event_id, user_id, name)
+  values (p_event_id, v_user, left(coalesce(v_name, 'Member'), 80))
+  on conflict (event_id, user_id) do nothing;
+end;
+$$;
+
+revoke all on function public.set_not_attending(uuid, boolean) from public, anon, authenticated;
+grant execute on function public.set_not_attending(uuid, boolean) to authenticated;
+
+-- Signing up is coming: a "not attending" mark is dropped by the sign-up.
+create or replace function public.clear_absence_on_signup()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  delete from public.absences where event_id = new.event_id and user_id = new.created_by;
+  return null;
+end;
+$$;
+
+revoke all on function public.clear_absence_on_signup() from public, anon, authenticated;
+
+drop trigger if exists signups_clear_absence on public.signups;
+create trigger signups_clear_absence
+  after insert on public.signups
+  for each row execute function public.clear_absence_on_signup();
 
 -- ---------------------------------------------------------------------------
 -- Joining with the invite code
@@ -771,7 +881,12 @@ begin
                           'item', s.item, 'note', s.note, 'address', s.address,
                           'mine', s.created_by = v_member.user_id)
                           order by s.created_at)
-                   from public.signups s where s.event_id = e.id), '[]'::jsonb)
+                   from public.signups s where s.event_id = e.id), '[]'::jsonb),
+               'absences', coalesce((
+                 select jsonb_agg(jsonb_build_object(
+                          'id', a.id, 'name', a.name, 'mine', a.user_id = v_member.user_id)
+                          order by a.created_at)
+                   from public.absences a where a.event_id = e.id), '[]'::jsonb)
              ) order by e.event_date, e.start_time)
         from public.events e
        where e.event_date >= current_date - interval '3 months'
@@ -803,10 +918,10 @@ grant execute on function public.feed_data(uuid)                   to anon, auth
 -- Live updates
 -- ---------------------------------------------------------------------------
 --
--- One row that changes whenever an event, food slot or sign-up does. Open
--- pages watch it through Supabase Realtime and reload the calendar the usual
--- way when it ticks, so a sign-up shows up for everyone without a reload. The
--- row carries no data of its own: what each person then sees is still decided
+-- One row that changes whenever an event, food slot, sign-up or "not
+-- attending" mark does. Open pages watch it through Supabase Realtime and
+-- reload the calendar the usual way when it ticks, so a sign-up shows up for
+-- everyone without a reload. The row carries no data of its own: what each person then sees is still decided
 -- by the rules above (contact details stay with organizers, and so on).
 
 create table if not exists public.calendar_changes (
@@ -850,6 +965,11 @@ create trigger food_slots_note_change
 drop trigger if exists signups_note_change on public.signups;
 create trigger signups_note_change
   after insert or update or delete on public.signups
+  for each statement execute function public.note_calendar_change();
+
+drop trigger if exists absences_note_change on public.absences;
+create trigger absences_note_change
+  after insert or update or delete on public.absences
   for each statement execute function public.note_calendar_change();
 
 -- Realtime only sends changes for tables in its publication. A plain

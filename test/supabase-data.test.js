@@ -329,6 +329,40 @@ describe('contact details', () => {
     ],
   };
 
+  it('asks set_not_attending() to mark you, and again to take it back', async () => {
+    const asked = [];
+    const client = fakeClient({
+      current: session('anna'),
+      rpcs: { set_not_attending: (args) => (asked.push(args), OK) },
+    });
+    const data = createSupabaseData(client);
+    await data.init();
+    await data.setNotAttending('e1', true);
+    await data.setNotAttending('e1', false);
+    assert.deepEqual(asked, [
+      { p_event_id: 'e1', p_not_attending: true },
+      { p_event_id: 'e1', p_not_attending: false },
+    ]);
+  });
+
+  it('loads who is not attending along with the sign-ups', async () => {
+    const client = fakeClient({
+      current: session('anna'),
+      events: [
+        {
+          id: 'e1', title: 'Potluck', event_date: '2026-10-07', needs_host: true, host_limit: 1,
+          allow_other_food: true, food_slots: [], signups: [],
+          absences: [{ id: 'a1', event_id: 'e1', user_id: 'bob', name: 'Bob' }],
+        },
+      ],
+    });
+    const data = createSupabaseData(client);
+    await data.init();
+    const [event] = await data.loadEvents();
+    assert.ok(client.selects.some((sel) => sel.includes('absences(*)')));
+    assert.deepEqual(event.absences, [{ id: 'a1', eventId: 'e1', userId: 'bob', name: 'Bob' }]);
+  });
+
   it('never asks the database for the contact column, which it refuses', async () => {
     const client = fakeClient({ current: session('anna'), events: [eventRow] });
     const data = createSupabaseData(client);

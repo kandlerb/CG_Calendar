@@ -45,6 +45,13 @@ function toEvent(row, contacts = new Map()) {
       address: signup.address ?? '',
       createdBy: signup.created_by,
     })),
+    // Missing on a project whose schema predates "Not attending".
+    absences: (row.absences ?? []).map((absence) => ({
+      id: absence.id,
+      eventId: absence.event_id,
+      userId: absence.user_id,
+      name: absence.name,
+    })),
   };
 }
 
@@ -368,7 +375,7 @@ export function createSupabaseData(client, { siteUrl = '', feedBase = '', initia
     async loadEvents({ since = null } = {}) {
       let query = client
         .from('events')
-        .select(`*, food_slots(*), signups(${SIGNUP_COLUMNS})`)
+        .select(`*, food_slots(*), signups(${SIGNUP_COLUMNS}), absences(*)`)
         .order('event_date', { ascending: true })
         .order('created_at', { referencedTable: 'signups', ascending: true });
       if (since) query = query.gte('event_date', since);
@@ -433,6 +440,17 @@ export function createSupabaseData(client, { siteUrl = '', feedBase = '', initia
 
     async deleteSignup(id) {
       await write(() => client.from('signups').delete().eq('id', id));
+    },
+
+    /**
+     * Says you are not attending an event, or that you are after all.
+     * set_not_attending() keeps it to your own mark, and takes your sign-ups
+     * off the event when you say you are not coming.
+     */
+    async setNotAttending(eventId, notAttending) {
+      await write(() =>
+        client.rpc('set_not_attending', { p_event_id: eventId, p_not_attending: Boolean(notAttending) }),
+      );
     },
   };
 }

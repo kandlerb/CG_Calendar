@@ -36,6 +36,40 @@ function event(overrides = {}) {
 
 const signup = (o) => ({ id: 's1', kind: 'food', name: 'Anna', item: 'Lasagna', createdBy: ANNA, ...o });
 
+describe('not attending', () => {
+  const absence = (o) => ({ id: 'a1', userId: ANNA, name: 'Anna', ...o });
+
+  it('knows whether the viewer has said they are not attending', () => {
+    const shaped = shapeEvent(event({ absences: [absence()] }), { userId: ANNA });
+    assert.equal(shaped.notAttending, true);
+    assert.equal(shaped.absences[0].isMine, true);
+    assert.equal(shapeEvent(event({ absences: [absence()] }), { userId: BOB }).notAttending, false);
+  });
+
+  it('copes with an event that has no absences at all', () => {
+    const shaped = shapeEvent({ ...event(), absences: undefined }, { userId: ANNA });
+    assert.deepEqual(shaped.absences, []);
+    assert.equal(shaped.notAttending, false);
+  });
+
+  it('offers the button to a signed-in viewer on an event that is still on', () => {
+    assert.equal(shapeEvent(event(), { userId: ANNA, todayKey: '2026-09-01' }).canAnswer, true);
+    assert.equal(shapeEvent(event(), { userId: null }).canAnswer, false);
+    assert.equal(shapeEvent(event(), { userId: ANNA, todayKey: '2026-09-03' }).canAnswer, false);
+    assert.equal(shapeEvent(event({ cancelled: true }), { userId: ANNA }).canAnswer, false);
+  });
+
+  it('shows a "Not attending" badge, but never beside "You signed up"', () => {
+    const away = shapeEvent(event({ absences: [absence()] }), { userId: ANNA });
+    assert.ok(eventBadges(away).some((b) => b.text === 'Not attending' && b.mine));
+    const both = shapeEvent(event({ absences: [absence()], signups: [signup({ slotId: 'main' })] }), { userId: ANNA });
+    assert.ok(eventBadges(both).some((b) => b.text === 'You signed up'));
+    assert.ok(!eventBadges(both).some((b) => b.text === 'Not attending'));
+    const pastAway = shapeEvent(event({ absences: [absence()] }), { userId: ANNA, todayKey: '2026-09-03' });
+    assert.ok(eventBadges(pastAway).some((b) => b.text === 'Not attending'));
+  });
+});
+
 describe('shaping an event', () => {
   it('splits hosts from food and counts the host spots left', () => {
     const shaped = shapeEvent(

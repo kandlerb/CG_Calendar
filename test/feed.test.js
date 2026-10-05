@@ -180,6 +180,18 @@ describe('the description', () => {
     assert.ok(text.endsWith('Kids welcome.'));
   });
 
+  it('says who is not attending, and tells you when it is you', () => {
+    const ics = build([row({ absences: [{ id: 'a1', name: 'Bob', mine: false }] })]);
+    const text = description(ics);
+    assert.ok(text.includes('Not attending: Bob'));
+    assert.ok(!text.includes("You said you're not attending."));
+    assert.equal(text.split('\n')[0], `See details: ${SITE}#event=evt-1`);
+
+    const mine = description(build([row({ absences: [{ id: 'a1', name: 'Anna', mine: true }] })]));
+    assert.ok(mine.includes("You said you're not attending."));
+    assert.equal(mine.split('\n')[0], `See details or change your answer: ${SITE}#event=evt-1`);
+  });
+
   it('never includes contact details, even if a row carries them', () => {
     const ics = build([potluck([{ id: 'a', kind: 'host', name: 'Anna', contact: '555-0100', mine: false }])]);
     assert.ok(!ics.includes('555-0100'));

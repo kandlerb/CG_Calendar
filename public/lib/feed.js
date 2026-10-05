@@ -141,6 +141,11 @@ export function toFeedEvent(row) {
       // The feed never learns who created what, only whether it was you.
       createdBy: signup.mine ? 'me' : 'someone',
     })),
+    absences: (row.absences ?? []).map((absence) => ({
+      id: absence.id,
+      name: absence.name,
+      userId: absence.mine ? 'me' : 'someone',
+    })),
   };
 }
 
@@ -168,15 +173,18 @@ export function describeEvent(event, siteUrl) {
   const summary = eventSummary(event);
   const label = event.mine.length
     ? 'See details or change your sign-up'
-    : summary.done
-      ? 'See details'
-      : 'Sign up or see details';
+    : event.notAttending
+      ? 'See details or change your answer'
+      : summary.done
+        ? 'See details'
+        : 'Sign up or see details';
   const lines = [`${label}: ${eventLink(siteUrl, event.id)}`, ''];
 
   const yours = [];
   if (event.mine.some((s) => s.kind === 'host')) yours.push("You're hosting.");
   const bringing = event.mine.filter((s) => s.kind === 'food').map((s) => s.item);
   if (bringing.length) yours.push(`You're bringing: ${bringing.join(', ')}.`);
+  if (event.notAttending) yours.push("You said you're not attending.");
   lines.push(...yours, summary.text);
 
   if (event.needsHost || event.hosts.length) {
@@ -202,6 +210,10 @@ export function describeEvent(event, siteUrl) {
     if (event.otherFood.length) {
       lines.push(`• Other food: ${event.otherFood.map(person).join('; ')}`);
     }
+  }
+
+  if (event.absences?.length) {
+    lines.push('', `Not attending: ${event.absences.map((a) => a.name).join(', ')}`);
   }
 
   if (event.description) lines.push('', event.description);

@@ -710,6 +710,25 @@ main {
   color: var(--muted);
 }
 
+/* "Not attending", and the way back. */
+.attendance {
+  margin-top: var(--space-4);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+.attendance.away { border-style: solid; border-color: var(--border); background: var(--surface-2); }
+.attendance > div { min-width: 0; }
+.attendance-text { margin: 0; font-size: 14px; line-height: 20px; color: var(--muted); }
+.attendance.away .attendance-text { color: var(--text); font-weight: 600; }
+.attendance-list { margin: 0; font-size: 13px; line-height: 18px; color: var(--muted); }
+.attendance .btn { flex: 0 0 auto; white-space: nowrap; }
+
 .section { margin-top: var(--space-5); border-top: 1px solid var(--border); padding-top: var(--space-5); }
 .section h3 { font-size: 18px; line-height: 24px; margin-bottom: var(--space-3); display: flex; gap: var(--space-2); align-items: baseline; }
 .section-note { font: 400 13px/18px var(--font-sans); color: var(--muted); }

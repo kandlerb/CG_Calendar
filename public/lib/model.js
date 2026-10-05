@@ -44,6 +44,12 @@ export function shapeEvent(event, { userId = null, isOrganizer = false, todayKey
 
   const hosts = signups.filter((s) => s.kind === 'host');
   const food = signups.filter((s) => s.kind === 'food');
+  // Who has said they are not coming. Your own mark is yours to take back,
+  // until the event is over.
+  const absences = (event.absences ?? []).map((absence) => ({
+    ...absence,
+    isMine: Boolean(userId) && absence.userId === userId,
+  }));
   return {
     ...event,
     past,
@@ -56,6 +62,11 @@ export function shapeEvent(event, { userId = null, isOrganizer = false, todayKey
     foodSlots: slots,
     hostSpotsLeft: Math.max(0, (event.needsHost ? event.hostLimit : 0) - hosts.length),
     mine: signups.filter((s) => s.isMine),
+    absences,
+    notAttending: absences.some((a) => a.isMine),
+    // The button to say so, or to say you are coming after all. An event
+    // that is over or called off takes no answer either way.
+    canAnswer: Boolean(userId) && !closed,
   };
 }
 
@@ -103,6 +114,7 @@ export function eventBadges(event) {
     // Nothing is still needed from an event that is over or called off.
     badges.push(event.cancelled ? { text: 'Cancelled', warn: true } : { text: 'Past event', warn: false });
     if (event.mine?.length) badges.push({ text: 'You signed up', warn: false, mine: true });
+    else if (event.notAttending) badges.push({ text: 'Not attending', warn: false, mine: true });
     return badges;
   }
   // An event whose host is arranged by the organizer has no host badge; the
@@ -125,6 +137,8 @@ export function eventBadges(event) {
 
   if (event.mine?.length) {
     badges.push({ text: 'You signed up', warn: false, mine: true });
+  } else if (event.notAttending) {
+    badges.push({ text: 'Not attending', warn: false, mine: true });
   }
   return badges;
 }
