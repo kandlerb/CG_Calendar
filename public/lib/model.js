@@ -107,14 +107,23 @@ export function eventSummary(event) {
   return { done: true, text: 'Every slot has the number it asked for. More food is still welcome.' };
 }
 
-/** The short status labels shown on a chip or card. */
-export function eventBadges(event) {
+/**
+ * The short status labels shown on a chip or card. An organizer also sees
+ * how many people have said they are not coming, for the head count; it is
+ * the organizer's business, so nobody else gets it.
+ */
+export function eventBadges(event, { isOrganizer = false } = {}) {
   const badges = [];
+  const away = event.absences?.length ?? 0;
+  const awayBadge = () => {
+    if (isOrganizer && away > 0) badges.push({ text: `${away} not attending`, warn: false });
+  };
   if (event.closed) {
     // Nothing is still needed from an event that is over or called off.
     badges.push(event.cancelled ? { text: 'Cancelled', warn: true } : { text: 'Past event', warn: false });
     if (event.mine?.length) badges.push({ text: 'You signed up', warn: false, mine: true });
     else if (event.notAttending) badges.push({ text: 'Not attending', warn: false, mine: true });
+    awayBadge();
     return badges;
   }
   // An event whose host is arranged by the organizer has no host badge; the
@@ -140,6 +149,7 @@ export function eventBadges(event) {
   } else if (event.notAttending) {
     badges.push({ text: 'Not attending', warn: false, mine: true });
   }
+  awayBadge();
   return badges;
 }
 

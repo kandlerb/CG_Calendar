@@ -112,6 +112,24 @@ test('a member can say they are not attending, then that they are coming after a
   await expect(box).not.toContainText('and you');
 });
 
+test('organizers see how many are not attending on the Upcoming cards; members do not', async ({ page }) => {
+  await openEvent(page, DINNER);
+  await dialog(page).locator('.attendance').getByRole('button', { name: 'Not attending' }).click();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Upcoming' }).click();
+  const card = () => page.locator('.agenda-card').filter({ hasText: 'Week 1' });
+  // Dev (seeded) and the member: two away, but a member only sees their own mark.
+  await expect(card().locator('.badge', { hasText: /\d+ not attending/ })).toHaveCount(0);
+
+  await signInAsOrganizer(page);
+  await page.getByRole('button', { name: 'Upcoming' }).click();
+  await expect(card().locator('.badge', { hasText: '2 not attending' })).toHaveCount(1);
+  // An event nobody has declined has no count at all.
+  await expect(
+    page.locator('.agenda-card').filter({ hasText: 'Fall Cookout' }).locator('.badge', { hasText: /not attending/ }),
+  ).toHaveCount(0);
+});
+
 test('saying you are not attending asks before dropping your sign-up, and signing up again clears it', async ({
   page,
 }) => {

@@ -520,7 +520,7 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
       ${weatherSlot(event)}
       <h3><button type="button" class="agenda-open" data-event="${esc(event.id)}">${esc(event.title)}</button></h3>
       ${event.location ? `<p class="where">${esc(event.location)}</p>` : ''}
-      ${badgeHtml(eventBadges(event))}
+      ${badgeHtml(eventBadges(event, { isOrganizer: Boolean(state.viewer?.isOrganizer) }))}
       <span class="agenda-cue" aria-hidden="true">${
         event.cancelled ? 'See details →' : event.past ? 'See who came →' : 'Open to sign up →'
       }</span>

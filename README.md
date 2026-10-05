@@ -212,6 +212,7 @@ them were anonymous, so they can't edit them any more; an organizer still can.
 | See the calendar and who signed up | no — sign-in screen only | yes | yes |
 | Sign up to host or bring food | no | yes | yes |
 | Say they are not attending, and change their mind | no | yes | yes |
+| See how many are not attending on the Upcoming cards | no | no | yes |
 | See the phone number or email someone left | — | only their own | yes |
 | Edit or remove **their own** sign-up, until the event is over | — | yes, from any device | yes |
 | Subscribe from their phone's calendar, or add one event | — | yes | yes |

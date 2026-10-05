@@ -68,6 +68,28 @@ describe('not attending', () => {
     const pastAway = shapeEvent(event({ absences: [absence()] }), { userId: ANNA, todayKey: '2026-09-03' });
     assert.ok(eventBadges(pastAway).some((b) => b.text === 'Not attending'));
   });
+
+  it('counts who is not attending for an organizer, and for nobody else', () => {
+    const two = shapeEvent(event({ absences: [absence(), absence({ id: 'a2', userId: BOB, name: 'Bob' })] }), {
+      userId: 'user-organizer',
+    });
+    assert.ok(eventBadges(two, { isOrganizer: true }).some((b) => b.text === '2 not attending'));
+    assert.ok(!eventBadges(two, { isOrganizer: false }).some((b) => /not attending/.test(b.text)));
+    assert.ok(!eventBadges(two).some((b) => /not attending/.test(b.text)));
+
+    const none = shapeEvent(event(), { userId: 'user-organizer' });
+    assert.ok(!eventBadges(none, { isOrganizer: true }).some((b) => /not attending/.test(b.text)));
+
+    // The count stays on an event that is over, where it is the record.
+    const pastTwo = shapeEvent(event({ absences: [absence(), absence({ id: 'a2', userId: BOB })] }), {
+      userId: 'user-organizer',
+      todayKey: '2026-09-03',
+    });
+    assert.deepEqual(
+      eventBadges(pastTwo, { isOrganizer: true }).map((b) => b.text),
+      ['Past event', '2 not attending'],
+    );
+  });
 });
 
 describe('shaping an event', () => {
