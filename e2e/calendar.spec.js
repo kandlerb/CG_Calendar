@@ -119,7 +119,11 @@ test('organizers see how many are not attending on the Upcoming cards; members d
   await page.getByRole('button', { name: 'Upcoming' }).click();
   const card = () => page.locator('.agenda-card').filter({ hasText: 'Week 1' });
   // Dev (seeded) and the member: two away, but a member only sees their own mark.
+  await expect(card().locator('.badge.mine')).toHaveText('Not attending');
   await expect(card().locator('.badge', { hasText: /\d+ not attending/ })).toHaveCount(0);
+  // Let the view finish sliding in before signing out, or its last redraw
+  // lands on the sign-in form.
+  await expect(page.locator('.slide-outgoing')).toHaveCount(0);
 
   await signInAsOrganizer(page);
   await page.getByRole('button', { name: 'Upcoming' }).click();
