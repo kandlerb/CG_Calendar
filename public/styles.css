@@ -615,6 +615,8 @@ main {
 .agenda-open:focus-visible { outline: none; }
 .agenda-card .when { color: var(--muted); font-size: 13px; line-height: 18px; margin: 0 0 var(--space-1); }
 .agenda-card .where { color: var(--muted); font-size: 13px; line-height: 18px; margin: var(--space-1) 0 0; }
+/* Above the title button's stretched ::after, so a tap opens the map, not the event. */
+.agenda-card .map-link { position: relative; z-index: 1; }
 .agenda-card.past, .agenda-card.cancelled { box-shadow: none; opacity: 0.8; }
 .agenda-card.cancelled h3 { text-decoration: line-through; }
 .agenda-filter { display: flex; justify-content: flex-end; }
@@ -747,6 +749,9 @@ main {
 .contact-link:hover .contact-action, .contact-link:focus-visible .contact-action { text-decoration: underline; }
 .contact-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-xs); }
 .contact-action { color: var(--accent); font-weight: 600; }
+.map-link { color: inherit; text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
+.map-link:hover { color: var(--accent); }
+.map-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-xs); }
 
 /* "Also add it for the next [3] weeks". */
 .inline-field { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: 15px; }

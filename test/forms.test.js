@@ -10,6 +10,7 @@ import {
   slotStatus,
   eventCopy,
   nextTitle,
+  recentPlaces,
   repeatCount,
   slotCopies,
 } from '../public/lib/forms.js';
@@ -25,6 +26,36 @@ const eventValues = (overrides = {}) => ({
   location: '',
   description: '',
   ...overrides,
+});
+
+describe('suggesting a location', () => {
+  const event = (date, location, extra = {}) => ({ date, location, signups: [], ...extra });
+
+  it('puts the latest event first and lists each address once', () => {
+    const events = [
+      event('2026-09-01', '12 Oak St'),
+      event('2026-10-01', 'Riverside Park'),
+      event('2026-08-15', '12 oak st '),
+      event('2026-08-01', ''),
+    ];
+    assert.deepEqual(recentPlaces(events), ['Riverside Park', '12 Oak St']);
+  });
+
+  it("uses a host's address when the event had no location of its own", () => {
+    const hosted = event('2026-10-08', '', { hosts: [{ name: 'Ana', address: '4 Elm Ct' }] });
+    assert.deepEqual(recentPlaces([event('2026-10-01', 'Riverside Park'), hosted]), ['4 Elm Ct', 'Riverside Park']);
+  });
+
+  it('skips cancelled events and stops at the limit', () => {
+    const events = [
+      event('2026-10-09', 'Closed Hall', { cancelled: true }),
+      event('2026-10-08', 'A'),
+      event('2026-10-07', 'B'),
+      event('2026-10-06', 'C'),
+    ];
+    assert.deepEqual(recentPlaces(events, 2), ['A', 'B']);
+    assert.deepEqual(recentPlaces([]), []);
+  });
 });
 
 describe('the event form', () => {
@@ -56,6 +87,11 @@ describe('the event form', () => {
     const arranged = eventFromForm(eventValues({ hosting: 'set', location: ' Park ' }));
     assert.equal(arranged.location, 'Park');
     assert.equal(arranged.needsHost, false);
+  });
+
+  it('asks for the location when the host is arranged', () => {
+    assert.throws(() => eventFromForm(eventValues({ hosting: 'set', location: '  ' })), /location/);
+    assert.doesNotThrow(() => eventFromForm(eventValues({ hosting: 'needed', location: '' })));
   });
 
   it('never asks for fewer than one host', () => {
