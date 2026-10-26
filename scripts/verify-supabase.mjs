@@ -273,14 +273,14 @@ if (organizerEmail && organizerPassword) {
         const host1 = await api('/rest/v1/signups', {
           method: 'POST',
           token,
-          body: { event_id: eventId, kind: 'host', name: 'Setup check' },
+          body: { event_id: eventId, kind: 'host', name: 'Setup check', address: '1 Setup St' },
         });
         check(host1.ok, 'a member can sign up to host', host1.ok ? '' : errorText(host1.data));
 
         const host2 = await api('/rest/v1/signups', {
           method: 'POST',
           token,
-          body: { event_id: eventId, kind: 'host', name: 'Setup check two' },
+          body: { event_id: eventId, kind: 'host', name: 'Setup check two', address: '2 Setup St' },
         });
         check(
           !host2.ok,
