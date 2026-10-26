@@ -347,6 +347,10 @@ test('a host gives an address, which the group sees with their sign-up', async (
   await dialog(page).getByRole('button', { name: 'Sign up to host' }).click();
   await expect(dialog(page).locator('form')).toContainText('address included');
   await page.getByLabel('Your name').fill('Jordan');
+  // The address is required: without one the sign-up does not go in.
+  await dialog(page).locator('form').getByRole('button', { name: 'Sign up to host' }).click();
+  expect(await dialog(page).getByLabel('Address').evaluate((input) => input.validity.valueMissing)).toBe(true);
+  await expect(dialog(page).locator('.modal-head')).not.toContainText('Hosted by Jordan');
   await dialog(page).getByLabel('Address').fill('12 Oak St, Augusta, GA');
   await dialog(page).locator('form').getByRole('button', { name: 'Sign up to host' }).click();
   await expect(dialog(page).locator('.modal-head')).toContainText('Hosted by Jordan');

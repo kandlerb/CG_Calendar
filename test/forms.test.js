@@ -155,7 +155,7 @@ describe('the sign-up form', () => {
   });
 
   it('does not ask a host what they are bringing', () => {
-    const host = signupFromForm({ name: 'Anna' }, { eventId: 'e1', kind: 'host' });
+    const host = signupFromForm({ name: 'Anna', address: '12 Oak St' }, { eventId: 'e1', kind: 'host' });
     assert.equal(host.item, '');
     assert.equal(host.slotId, null);
   });
@@ -165,6 +165,11 @@ describe('the sign-up form', () => {
     assert.equal(host.address, '12 Oak St');
     const food = signupFromForm({ name: 'Anna', item: 'Pie', address: '12 Oak St' }, base);
     assert.equal(food.address, '');
+  });
+
+  it('asks a host for an address', () => {
+    assert.throws(() => signupFromForm({ name: 'Anna', address: '  ' }, { eventId: 'e1', kind: 'host' }), /address/);
+    assert.throws(() => signupFromForm({ name: 'Anna' }, { eventId: 'e1', kind: 'host' }), /address/);
   });
 });
 

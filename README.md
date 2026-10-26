@@ -308,8 +308,8 @@ Running `schema.sql` sets it all up, including adding the table to Realtime.
    inside an event gives a link that opens straight to it — someone who isn't
    signed in yet signs in and lands on that event.
 3. If the event is still looking for a host, someone taps **Sign up to
-   host**, entering the address (which goes into everyone's calendar feed)
-   and a note like where to park. Tapping an event's location or a host's
+   host**, entering the address (required — it goes into everyone's calendar
+   feed) and a note like where to park. Tapping an event's location or a host's
    address opens it in Maps — Apple Maps on an iPhone, iPad or Mac, the
    default maps app on Android, Google Maps anywhere else.
 4. Everyone else picks a food slot and types what they're bringing. A slot
