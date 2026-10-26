@@ -99,6 +99,7 @@ function seed() {
             contact: '',
             item: '',
             note: '',
+            address: '418 Walton Way, Augusta, GA',
             createdBy: 'someone-else',
           },
           {
@@ -313,6 +314,7 @@ export function createDemoData({ buildFeed = null } = {}) {
         if (!event.needsHost) throw new Error('This event does not need a host.');
         const taken = event.signups.filter((s) => s.kind === 'host').length;
         if (taken >= event.hostLimit) throw new Error('Someone already signed up to host this event.');
+        if (!String(signup.address ?? '').trim()) throw new Error('Enter the address people should come to.');
       } else if (signup.slotId) {
         // A slot asks for a number of people; it never turns anyone away for
         // being late, so there is nothing to refuse here.
@@ -345,6 +347,10 @@ export function createDemoData({ buildFeed = null } = {}) {
         const signup = event.signups.find((s) => s.id === id);
         if (!signup) continue;
         if (!viewer.isOrganizer && signup.createdBy !== me) throw new Error('You are not allowed to do that.');
+        const address = 'address' in patch ? patch.address : signup.address;
+        if (signup.kind === 'host' && !String(address ?? '').trim()) {
+          throw new Error('Enter the address people should come to.');
+        }
         for (const key of allowed) if (key in patch) signup[key] = patch[key];
       }
     },

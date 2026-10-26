@@ -105,6 +105,12 @@ alter table public.signups add column if not exists address text not null defaul
 alter table public.signups drop constraint if exists signups_address_check;
 alter table public.signups add constraint signups_address_check check (char_length(address) <= 200);
 
+-- A host has to say where. "not valid" leaves a host sign-up from before this
+-- rule as it is; it gets an address the next time it is edited.
+alter table public.signups drop constraint if exists signups_host_needs_address;
+alter table public.signups add constraint signups_host_needs_address
+  check (kind <> 'host' or char_length(btrim(address)) > 0) not valid;
+
 create index if not exists signups_event_idx on public.signups (event_id);
 create index if not exists signups_slot_idx on public.signups (slot_id);
 

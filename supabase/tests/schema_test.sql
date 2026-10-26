@@ -220,7 +220,7 @@ select tests_become(:stranger::uuid);
 select tests_assert((select count(*) from public.events) = 0, 'an account that has not joined sees no events');
 select tests_assert((select count(*) from public.food_slots) = 0, 'an account that has not joined sees no food slots');
 select tests_expect_error(
-  format($$insert into public.signups (event_id, kind, name) values (%L, 'host', 'Stranger')$$, :'event_id'),
+  format($$insert into public.signups (event_id, kind, name, address) values (%L, 'host', 'Stranger', '1 Elm St')$$, :'event_id'),
   'row-level security',
   'an account that has not joined cannot sign up');
 
@@ -232,14 +232,22 @@ select tests_assert((select count(*) from public.events) = 0, 'an anonymous sess
 -- ---------------------------------------------------------------------------
 
 select tests_become(:anna::uuid);
-insert into public.signups (event_id, kind, name) values (:'event_id'::uuid, 'host', 'Anna');
+select tests_expect_error(
+  format($$insert into public.signups (event_id, kind, name) values (%L, 'host', 'Anna')$$, :'event_id'),
+  'signups_host_needs_address',
+  'a host has to give an address');
+select tests_expect_error(
+  format($$insert into public.signups (event_id, kind, name, address) values (%L, 'host', 'Anna', '   ')$$, :'event_id'),
+  'signups_host_needs_address',
+  'an address of only spaces is no address');
+insert into public.signups (event_id, kind, name, address) values (:'event_id'::uuid, 'host', 'Anna', '12 Oak St');
 select tests_assert(
   (select count(*) from public.signups where kind = 'host') = 1,
   'a participant can sign up to host');
 
 select tests_become(:bob::uuid);
 select tests_expect_error(
-  format($$insert into public.signups (event_id, kind, name) values (%L, 'host', 'Bob')$$, :'event_id'),
+  format($$insert into public.signups (event_id, kind, name, address) values (%L, 'host', 'Bob', '9 Pine Rd')$$, :'event_id'),
   'already signed up to host',
   'a second host is refused');
 
@@ -574,6 +582,31 @@ values (:'hosted_id'::uuid, 'host', 'Anna Smith', 'Side door', '12 Oak St, Augus
 select tests_assert(
   (select address from public.signups where event_id = :'hosted_id'::uuid and kind = 'host') = '12 Oak St, Augusta, GA',
   'a host sign-up keeps its address');
+select tests_expect_error(
+  format($$update public.signups set address = '' where event_id = %L and kind = 'host'$$, :'hosted_id'),
+  'signups_host_needs_address',
+  'a host cannot clear their address');
+
+-- A host sign-up from before the address rule is kept when schema.sql is
+-- re-run, and is asked for an address only once someone edits it.
+reset role;
+alter table public.signups drop constraint signups_host_needs_address;
+update public.signups set address = '' where event_id = :'hosted_id'::uuid and kind = 'host';
+alter table public.signups add constraint signups_host_needs_address
+  check (kind <> 'host' or char_length(btrim(address)) > 0) not valid;
+select tests_assert(
+  (select address from public.signups where event_id = :'hosted_id'::uuid and kind = 'host') = '',
+  'an older host sign-up without an address survives the rule being added');
+select tests_become(:anna::uuid);
+select tests_expect_error(
+  format($$update public.signups set note = 'Back door' where event_id = %L and kind = 'host'$$, :'hosted_id'),
+  'signups_host_needs_address',
+  'editing an older host sign-up asks for its address');
+update public.signups set note = 'Side door', address = '12 Oak St, Augusta, GA'
+ where event_id = :'hosted_id'::uuid and kind = 'host';
+select tests_assert(
+  (select address from public.signups where event_id = :'hosted_id'::uuid and kind = 'host') = '12 Oak St, Augusta, GA',
+  'an older host sign-up takes an address when edited');
 
 reset role;
 select tests_assert(

@@ -83,11 +83,24 @@ describe('demo data source', () => {
     assert.equal(host.note, 'Side door');
   });
 
+  it('asks a host for an address, as the database does', async () => {
+    const event = await firstEvent();
+    await assert.rejects(() => data.addSignup({ eventId: event.id, kind: 'host', name: 'Anna' }), /address/);
+    await assert.rejects(
+      () => data.addSignup({ eventId: event.id, kind: 'host', name: 'Anna', address: '  ' }),
+      /address/,
+    );
+    await data.addSignup({ eventId: event.id, kind: 'host', name: 'Anna', address: '12 Oak St' });
+    const host = (await firstEvent()).signups.find((s) => s.kind === 'host');
+    await assert.rejects(() => data.updateSignup(host.id, { address: '' }), /address/);
+    await data.updateSignup(host.id, { note: 'Side door' });
+  });
+
   it('refuses a second host', async () => {
     const event = await firstEvent();
-    await data.addSignup({ eventId: event.id, kind: 'host', name: 'Anna' });
+    await data.addSignup({ eventId: event.id, kind: 'host', name: 'Anna', address: '12 Oak St' });
     await assert.rejects(
-      () => data.addSignup({ eventId: event.id, kind: 'host', name: 'Bob' }),
+      () => data.addSignup({ eventId: event.id, kind: 'host', name: 'Bob', address: '9 Pine Rd' }),
       /already signed up to host/,
     );
   });
@@ -269,6 +282,6 @@ describe('demo data source', () => {
       /cancelled/,
     );
     await data.setCancelled(event.id, false);
-    await data.addSignup({ eventId: event.id, kind: 'host', name: 'Anna' });
+    await data.addSignup({ eventId: event.id, kind: 'host', name: 'Anna', address: '12 Oak St' });
   });
 });
