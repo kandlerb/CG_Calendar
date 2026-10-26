@@ -6,6 +6,7 @@
 // constraint name.
 
 import { addDays, addMonths, isoDate, normalizeTime, startOfMonth } from './dates.js';
+import { eventPlace } from './weather.js';
 
 /** The longest each field may be. Mirrors the checks in schema.sql. */
 export const LIMITS = {
@@ -67,12 +68,34 @@ export function eventFromForm(values, { id = null, allowOtherFood = true } = {})
     date: values.date,
     startTime,
     endTime,
-    location: needsHost ? '' : text(values.location),
+    // An arranged host means nobody signs up with an address, so the
+    // organizer has to give one.
+    location: needsHost ? '' : required(values.location, 'Add the location, or choose "Still looking for a host".'),
     description: text(values.description),
     needsHost,
     hostLimit: wholeNumber(values.hostLimit, { min: 1, fallback: 1 }),
     allowOtherFood: Boolean(allowOtherFood),
   };
+}
+
+/**
+ * The addresses events have been at, the latest event's first and each only
+ * once: what the event form suggests for the location. A cancelled event's
+ * address is skipped, since it may be why it was cancelled.
+ */
+export function recentPlaces(events, limit = 5) {
+  const seen = new Set();
+  const places = [];
+  const latestFirst = [...events].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  for (const event of latestFirst) {
+    if (event.cancelled) continue;
+    const place = text(eventPlace(event));
+    if (!place || seen.has(place.toLowerCase())) continue;
+    seen.add(place.toLowerCase());
+    places.push(place);
+    if (places.length === limit) break;
+  }
+  return places;
 }
 
 /** A sign-up form's values, checked. Blank-looking names and dishes are refused. */

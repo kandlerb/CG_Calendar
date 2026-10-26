@@ -32,12 +32,14 @@ import {
   eventCopy,
   eventFromForm,
   loadWindowStart,
+  recentPlaces,
   repeatCount,
   signupFromForm,
   slotCopies,
   slotStatus,
 } from './lib/forms.js';
 import { contactLink } from './lib/contact.js';
+import { mapsUrl } from './lib/maps.js';
 import { eventToIcs, icsFileName } from './lib/ics.js';
 
 const WEEKDAYS = [
@@ -58,6 +60,7 @@ const NAME_KEY = 'cg_name';
 const CONTACT_KEY = 'cg_contact';
 const VIEW_KEY = 'cg_view';
 const INTRO_KEY = 'cg_intro_dismissed';
+const PLACE_KEY = 'cg_last_location';
 
 const esc = (value) =>
   String(value ?? '').replace(
@@ -519,7 +522,7 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
       <p class="when">${esc(formatLongDate(event.date))} · ${esc(formatTimeRange(event))}</p>
       ${weatherSlot(event)}
       <h3><button type="button" class="agenda-open" data-event="${esc(event.id)}">${esc(event.title)}</button></h3>
-      ${event.location ? `<p class="where">${esc(event.location)}</p>` : ''}
+      ${event.location ? `<p class="where">${placeHtml(event.location)}</p>` : ''}
       ${badgeHtml(eventBadges(event, { isOrganizer: Boolean(state.viewer?.isOrganizer) }))}
       <span class="agenda-cue" aria-hidden="true">${
         event.cancelled ? 'See details →' : event.past ? 'See who came →' : 'Open to sign up →'
@@ -1342,7 +1345,7 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
           signup.isMine ? '<span class="pill">You</span>' : ''
         }</span>
         ${details ? `<div class="slot-people">${esc(details)}</div>` : ''}
-        ${signup.address ? `<div class="slot-people">${esc(signup.address)}</div>` : ''}
+        ${signup.address ? `<div class="slot-people">${placeHtml(signup.address)}</div>` : ''}
         ${signup.contact ? contactHtml(signup.contact, contactNote) : ''}
       </div>
       <div class="slot-actions">
@@ -1357,6 +1360,15 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
         }
       </div>
     </div>`;
+  }
+
+  /** An address, as a link that opens it in the maps app this device uses. */
+  function placeHtml(address) {
+    const href = mapsUrl(address, navigator.userAgent);
+    if (!href) return esc(address);
+    // A geo: link hands off to the maps app; a web one should not replace the calendar.
+    const newTab = href.startsWith('https:') ? ' target="_blank" rel="noopener"' : '';
+    return `<a class="map-link" href="${esc(href)}"${newTab} title="Open in Maps">${esc(address)}</a>`;
   }
 
   /**
@@ -1575,7 +1587,7 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
           <h2 id="modal-title">${esc(event.title)}</h2>
           <p class="when">${esc(formatLongDate(event.date))} · ${esc(formatTimeRange(event))}</p>
           ${weatherSlot(event, { credit: true })}
-          ${event.location ? `<p class="when">${esc(event.location)}</p>` : ''}
+          ${event.location ? `<p class="when">${placeHtml(event.location)}</p>` : ''}
           ${
             // The host's address, if they gave one, is on their sign-up below.
             event.hosts.length
@@ -1658,6 +1670,10 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
         ? slotCopies(copyOf.foodSlots)
         : [{ label: 'Main dish', needed: 1, id: '' }];
     const needsHost = source ? source.needsHost : true;
+    // Where the group usually meets: what this organizer last saved, then the
+    // addresses of the latest events. A new event starts with the first of them.
+    const places = [...new Set([remembered.read(PLACE_KEY), ...recentPlaces(state.events)].filter(Boolean))].slice(0, 5);
+    const suggested = !editing && !source?.location ? (places[0] ?? '') : '';
     return `
       <div class="modal-head">
         <div>
@@ -1746,8 +1762,14 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
           <div class="field indented wide" data-show-when="hosting=set" ${needsHost ? 'hidden' : ''}>
             <label for="ev-location">Location / address</label>
             <input id="ev-location" name="location" maxlength="${LIMITS.location}" autocomplete="off"
-                   placeholder="e.g. 12 Oak St, Augusta, GA 30901" value="${esc(source?.location ?? '')}" />
-            <span class="help">A full street address opens in Maps from people's calendars.</span>
+                   list="ev-location-recent" data-required ${needsHost ? '' : 'required'}
+                   placeholder="e.g. 12 Oak St, Augusta, GA 30901" value="${esc(source?.location || suggested)}" />
+            <datalist id="ev-location-recent">${places
+              .map((place) => `<option value="${esc(place)}"></option>`)
+              .join('')}</datalist>
+            <span class="help">${
+              suggested ? 'Filled in with the last address used — change it if this one is elsewhere. ' : ''
+            }A full street address opens in Maps for everyone.</span>
           </div>
         </fieldset>
 
@@ -1843,6 +1865,7 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
     if (state.since && event.date < state.since) state.since = event.date;
     const repeat = form.dataset.eventId ? 0 : repeatCount(values.repeatWeeks);
     const id = await data.saveEvent(event, slots);
+    if (event.location) remembered.write(PLACE_KEY, event.location);
     // The copies go in one by one. If one fails, the ones already saved stay,
     // and the message says how far it got rather than leaving the form up to
     // be submitted again, which would make duplicates.
@@ -2195,6 +2218,8 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
     for (const part of form.querySelectorAll('[data-show-when]')) {
       const [name, value] = part.dataset.showWhen.split('=');
       part.hidden = form.elements[name]?.value !== value;
+      // A hidden field cannot be filled in, so it is only required while shown.
+      for (const field of part.querySelectorAll('[data-required]')) field.required = !part.hidden;
     }
   });
 

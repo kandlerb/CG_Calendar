@@ -299,7 +299,9 @@ Running `schema.sql` sets it all up, including adding the table to Realtime.
 1. An organizer adds events — title, date, time, and the food slots to fill.
    For the host, pick one: **still looking for a host**, which lets people
    sign up to host, or **host is arranged**, which shows the location instead
-   and asks nobody to host. Add as many food slots as you like. The
+   and asks nobody to host. An arranged host needs a location; a new event
+   fills in the last address used (and suggests other recent ones), so a
+   group that meets in the same place only checks it. Add as many food slots as you like. The
    number beside each slot is **how many people you want for it** — a minimum,
    not a cap. Set it to 0 if any number will do.
 2. Send the group the link and the invite code. "Copy link to this event"
@@ -307,7 +309,9 @@ Running `schema.sql` sets it all up, including adding the table to Realtime.
    signed in yet signs in and lands on that event.
 3. If the event is still looking for a host, someone taps **Sign up to
    host**, entering the address (which goes into everyone's calendar feed)
-   and a note like where to park.
+   and a note like where to park. Tapping an event's location or a host's
+   address opens it in Maps — Apple Maps on an iPhone, iPad or Mac, the
+   default maps app on Android, Google Maps anywhere else.
 4. Everyone else picks a food slot and types what they're bringing. A slot
    never closes: once it has the number you asked for it shows as covered, and
    anyone who wants to add another side dish still can. Each person's own

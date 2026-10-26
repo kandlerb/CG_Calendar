@@ -288,11 +288,58 @@ test('an Upcoming card opens its event from anywhere on it, and its title is the
   await page.goto('/demo.html');
   await page.getByRole('button', { name: 'Upcoming' }).click();
   await expect(page.getByRole('button', { name: 'Fall Cookout' })).toBeVisible();
-  // The title's button is stretched over the card, so a click on the location
+  // The title's button is stretched over the card, so a click on the date
   // line lands on it. `force` clicks at that spot instead of waiting for the
-  // location text itself to be clickable.
-  await page.locator('.agenda-card', { hasText: 'Fall Cookout' }).locator('.where').click({ force: true });
+  // date text itself to be clickable.
+  await page.locator('.agenda-card', { hasText: 'Fall Cookout' }).locator('.when').first().click({ force: true });
   await expect(dialog(page).locator('#modal-title')).toHaveText('Fall Cookout');
+});
+
+test('an address opens in Maps, from an Upcoming card and from the event', async ({ page }) => {
+  const maps = 'https://www.google.com/maps/search/?api=1&query=Riverside%20Park%2C%20Shelter%20B';
+  await page.goto('/demo.html');
+  await page.getByRole('button', { name: 'Upcoming' }).click();
+  const cardLink = page.locator('.agenda-card', { hasText: 'Fall Cookout' }).getByRole('link', {
+    name: 'Riverside Park, Shelter B',
+  });
+  await expect(cardLink).toHaveAttribute('href', maps);
+  // The link sits above the card's stretched title button, so a tap on it is a tap on the link.
+  expect(
+    await cardLink.evaluate((link) => {
+      const box = link.getBoundingClientRect();
+      return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) === link;
+    }),
+  ).toBe(true);
+
+  await openEvent(page, COOKOUT);
+  await expect(dialog(page).getByRole('link', { name: 'Riverside Park, Shelter B' })).toHaveAttribute('href', maps);
+});
+
+test('a new event suggests the last address used and needs one when the host is arranged', async ({ page }) => {
+  await signInAsOrganizer(page);
+  await page.getByRole('button', { name: '+ New event' }).click();
+  await page.getByLabel('Title').fill('Picnic');
+  // Still looking for a host: no address is asked for, so it saves without one.
+  await expect(page.getByLabel('Location / address')).toBeHidden();
+  await page.getByLabel('Host is arranged').check();
+  const location = page.getByLabel('Location / address');
+  await expect(location).toHaveValue('Riverside Park, Shelter B');
+
+  await location.fill('');
+  await page.getByRole('button', { name: 'Create event' }).click();
+  expect(await location.evaluate((input) => input.validity.valueMissing)).toBe(true);
+  await expect(dialog(page).locator('#modal-title')).toHaveText('New event');
+
+  await location.fill('12 Oak St, Augusta, GA 30901');
+  await page.getByRole('button', { name: 'Create event' }).click();
+  await expect(dialog(page).locator('#modal-title')).toHaveText('Picnic');
+  await expect(dialog(page).getByRole('link', { name: '12 Oak St, Augusta, GA 30901' })).toBeVisible();
+
+  // The next event starts from the address just used.
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '+ New event' }).click();
+  await page.getByLabel('Host is arranged').check();
+  await expect(page.getByLabel('Location / address')).toHaveValue('12 Oak St, Augusta, GA 30901');
 });
 
 test('a host gives an address, which the group sees with their sign-up', async ({ page }) => {
