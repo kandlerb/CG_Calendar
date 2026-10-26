@@ -1432,9 +1432,9 @@ export function startApp(data, { onError, weather = createWeather() } = {}) {
       ${
         kind === 'host'
           ? `<div class="field">
-              <label for="su-address">Address <span class="help">(optional)</span></label>
+              <label for="su-address">Address</label>
               <input id="su-address" name="address" maxlength="${LIMITS.address}" autocomplete="street-address"
-                     value="${value('address')}" placeholder="12 Oak St, Augusta, GA" />
+                     value="${value('address')}" placeholder="12 Oak St, Augusta, GA" required />
               <span class="help">A full street address shows on the map in everyone's calendar.</span>
             </div>`
           : ''

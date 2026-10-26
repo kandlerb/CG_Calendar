@@ -108,8 +108,9 @@ export function signupFromForm(values, { eventId, kind, slotId = null }) {
     contact: text(values.contact),
     item: kind === 'food' ? required(values.item, 'Say what you will bring.') : '',
     note: text(values.note),
-    // Only a host says where; it becomes the address in everyone's calendar.
-    address: kind === 'host' ? text(values.address) : '',
+    // Only a host says where, and has to: it becomes the address in
+    // everyone's calendar.
+    address: kind === 'host' ? required(values.address, 'Enter the address people should come to.') : '',
   };
 }
 
